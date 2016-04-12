@@ -9,8 +9,17 @@
 #define SPRITE(x, y) (((y) << 16) | (x))
 #define SPRITE_X(type) ((type) & 0x00ff)
 #define SPRITE_Y(type) ((type) >> 16)
-#define CELL(x, y) game.map.cells[(y) * MAP_WIDTH + (x)]
-#define CURSOR_CELL game.map.cells[(game.cursor_y) * MAP_WIDTH + (game.cursor_x)]
+
+#define CELL(x, y) (&game.map.cells[(y) * MAP_WIDTH + (x)])
+
+#define CURSOR_CELL (&game.map.cells[(game.cursor_y) * MAP_WIDTH + (game.cursor_x)])
+#define CURSOR_POS game.cursor_x, game.cursor_y
+
+#define UNIT(id) (id == NO_UNIT ? &null_unit : &game.units[id])
+#define UNIT_POS(x, y) UNIT(CELL(x, y)->unit)
+
+#define HAS_UNIT(x, y) (CELL(x, y)->unit != NO_UNIT)
+#define NO_UNIT (-1)
 
 static int SPRITE_GRASS_1         = SPRITE(0, 0);
 static int SPRITE_GRASS_2         = SPRITE(1, 0);
@@ -40,15 +49,26 @@ static int WALL_SPRITES[16] = {
     SPRITE(7, 1)      // 15 - center piece
 };
 
+enum UnitType {
+    UNIT_TYPE_NONE = 0,
+    UNIT_TYPE_WALL,
+};
+
 typedef struct Unit {
-    struct Unit * free;
+    int type;
+    int sprite;
+    int x;
+    int y;
+    int next_free;
 } Unit;
+
+static Unit null_unit = {0};
 
 typedef struct Cell {
     int type;
     bool has_wall;
     int wall_sprite;
-    struct Unit * unit;
+    int unit;
 } Cell;
 
 typedef struct {
@@ -56,14 +76,15 @@ typedef struct {
 } Map;
 
 typedef struct Player {
-
+    int start_x;
+    int start_y;
 } Player;
 
 typedef struct {
     Map map;
 
     Unit units[UNIT_COUNT];
-    Unit * first_free_unit;
+    int first_free_unit;
 
     Player players[4];
 
@@ -81,24 +102,94 @@ typedef struct {
 static Game game = {0};
 
 
+static int alloc_unit(int x, int y, int type)
+{
+    if (game.first_free_unit == NO_UNIT)
+        return NO_UNIT;
+
+    if (HAS_UNIT(x, y))
+        return NO_UNIT;
+
+    int id = game.first_free_unit;
+    Unit * unit = UNIT(id);
+
+    game.first_free_unit = unit->next_free;
+
+    unit->type = type;
+    unit->x = x;
+    unit->y = y;
+    unit->next_free = NO_UNIT;
+
+    CELL(x, y)->unit = id;
+
+    return id;
+}
+
+static void free_unit(int id)
+{
+    Unit * unit = UNIT(id);
+    unit->type = UNIT_TYPE_NONE;
+    unit->next_free = game.first_free_unit;
+    game.first_free_unit = id;
+
+    CELL(unit->x, unit->y)->unit = NO_UNIT;
+}
+
+static bool has_unit_type(int x, int y, int type)
+{
+    if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT)
+        return false;
+
+    return UNIT_POS(x, y)->type == type;
+}
+
+static bool has_wall(int x, int y)
+{
+    return has_unit_type(x, y, UNIT_TYPE_WALL);
+}
+
 static int get_wall_count(int x, int y)
 {
     int count = 0;
-    if (y - 1 >= 0)             count += CELL(x, y - 1).has_wall ? 1 : 0;
-    if (x + 1 < MAP_WIDTH)      count += CELL(x + 1, y).has_wall ? 2 : 0;
-    if (y + 1 < MAP_HEIGHT)     count += CELL(x, y + 1).has_wall ? 4 : 0;
-    if (x - 1 >= 0)             count += CELL(x - 1, y).has_wall ? 8 : 0;
+
+    if (has_wall(x, y - 1)) count += 1;
+    if (has_wall(x + 1, y)) count += 2;
+    if (has_wall(x, y + 1)) count += 4;
+    if (has_wall(x - 1, y)) count += 8;
+
     return count;
 }
 
 static void update_wall_sprites(int x, int y)
 {
-    CELL(x, y).wall_sprite = get_wall_count(x, y);
+    if (has_wall(x, y))
+        UNIT_POS(x, y)->sprite = WALL_SPRITES[get_wall_count(x, y)];
+}
 
-    if (y - 1 >= 0) CELL(x, y - 1).wall_sprite = get_wall_count(x, y - 1);
-    if (x - 1 >= 0) CELL(x - 1, y).wall_sprite = get_wall_count(x - 1, y);
-    if (y + 1 < MAP_HEIGHT) CELL(x, y + 1).wall_sprite = get_wall_count(x, y + 1);
-    if (x + 1 < MAP_WIDTH)  CELL(x + 1, y).wall_sprite = get_wall_count(x + 1, y);
+static void build_wall(int x, int y)
+{
+    int wall = alloc_unit(x, y, UNIT_TYPE_WALL);
+    if (wall == NO_UNIT)
+        return;
+
+    update_wall_sprites(x, y);
+    update_wall_sprites(x + 1, y);
+    update_wall_sprites(x - 1, y);
+    update_wall_sprites(x, y + 1);
+    update_wall_sprites(x, y - 1);
+}
+
+static void demolish_wall(int x, int y)
+{
+    if (!has_wall(x, y))
+        return;
+
+    free_unit(CELL(x, y)->unit);
+
+    update_wall_sprites(x + 1, y);
+    update_wall_sprites(x - 1, y);
+    update_wall_sprites(x, y + 1);
+    update_wall_sprites(x, y - 1);
 }
 
 void init_game()
@@ -107,21 +198,17 @@ void init_game()
     {
         Cell * cell = &game.map.cells[i];
         cell->type = rand() % 2 == 1 ? SPRITE_GRASS_1 : SPRITE_GRASS_2;
-        cell->unit = NULL;
+        cell->unit = NO_UNIT;
         cell->has_wall = false;
     }
 
     for (int i = 0; i < UNIT_COUNT; ++i)
     {
-        Unit * unit = &game.units[i];
-
-        if (i < UNIT_COUNT - 1)
-            unit->free = &game.units[i + 1];
-        else
-            unit->free = NULL;
+        Unit * unit = UNIT(i);
+        unit->next_free = i < UNIT_COUNT - 1 ? i + 1 : NO_UNIT;
     }
 
-    game.first_free_unit = &game.units[0];
+    game.first_free_unit = 0;
 
     game.cursor_x = VIEW_WIDTH / 2;
     game.cursor_y = VIEW_HEIGHT / 2;
@@ -129,9 +216,9 @@ void init_game()
     game.offset_y = 0;
 }
 
-void draw_sprite(int x, int y, int type)
+void draw_sprite(int x, int y, int sprite)
 {
-    Rect rect = rect_make_size(SPRITE_X(type) * TILE_SIZE, SPRITE_Y(type) * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    Rect rect = rect_make_size(SPRITE_X(sprite) * TILE_SIZE, SPRITE_Y(sprite) * TILE_SIZE, TILE_SIZE, TILE_SIZE);
     bitmap_draw(x * TILE_SIZE, y * TILE_SIZE, 0, 0, &game.tilesheet, &rect, 0, 0);
 }
 
@@ -140,12 +227,16 @@ void draw_game()
     for (int y = 0; y < VIEW_HEIGHT; ++y)
         for (int x = 0; x < VIEW_WIDTH; ++x)
         {
-            Cell cell = CELL(game.offset_x + x, game.offset_y + y);
-            draw_sprite(x, y, cell.type);
-
-            if (cell.has_wall)
-                draw_sprite(x, y, WALL_SPRITES[cell.wall_sprite]);
+            Cell * cell = CELL(game.offset_x + x, game.offset_y + y);
+            draw_sprite(x, y, cell->type);
         }
+
+    for (int i = 0; i < UNIT_COUNT; ++i)
+    {
+        Unit * unit = UNIT(i);
+        if (unit->type != UNIT_TYPE_NONE)
+            draw_sprite(unit->x, unit->y, unit->sprite);
+    }
 
     draw_sprite(game.cursor_x - game.offset_x, game.cursor_y - game.offset_y, SPRITE_SELECTION);
 
@@ -188,17 +279,13 @@ void step_game()
 {
     step_cursor();
 
-    if (key_down(KEY_LBUTTON) && !CURSOR_CELL.has_wall)
+    if (key_down(KEY_LBUTTON) && !has_wall(CURSOR_POS))
     {
-        CURSOR_CELL.has_wall = true;
-        update_wall_sprites(game.cursor_x, game.cursor_y);
+        build_wall(CURSOR_POS);
     }
 
-    if (key_down(KEY_RBUTTON) && CURSOR_CELL.has_wall)
+    if (key_down(KEY_RBUTTON) && has_wall(CURSOR_POS))
     {
-        CURSOR_CELL.has_wall = false;
-        update_wall_sprites(game.cursor_x, game.cursor_y);
+        demolish_wall(CURSOR_POS);
     }
 }
-
-
