@@ -1,10 +1,12 @@
 
-#define MAP_WIDTH   (50)
-#define MAP_HEIGHT  (40)
+#define MAP_WIDTH   (80)
+#define MAP_HEIGHT  (60)
 #define TILE_SIZE   (8)
 #define VIEW_WIDTH  (CANVAS_WIDTH / TILE_SIZE)
 #define VIEW_HEIGHT (CANVAS_HEIGHT / TILE_SIZE)
-#define UNIT_COUNT  (2048)
+
+#define UNIT_COUNT      (2048)
+#define COMMAND_COUNT   (256)
 
 #define SPRITE(x, y) (((y) << 16) | (x))
 #define SPRITE_X(type) ((type) & 0x00ff)
@@ -15,15 +17,20 @@
 #define CURSOR_CELL (&game.map.cells[(game.cursor_y) * MAP_WIDTH + (game.cursor_x)])
 #define CURSOR_POS game.cursor_x, game.cursor_y
 
-#define UNIT(id) (id == NO_UNIT ? &null_unit : &game.units[id])
+#define NULL_UNIT game.units[0]
+#define UNIT(id) (id == NO_UNIT ? &NULL_UNIT : &game.units[id])
 #define UNIT_POS(x, y) UNIT(CELL(x, y)->unit)
 
 #define HAS_UNIT(x, y) (CELL(x, y)->unit != NO_UNIT)
-#define NO_UNIT (-1)
+#define NO_UNIT (0)
 
-static int SPRITE_GRASS_1         = SPRITE(0, 0);
-static int SPRITE_GRASS_2         = SPRITE(1, 0);
-static int SPRITE_SELECTION       = SPRITE(0, 1);
+static int SPRITE_GRASS_1   = SPRITE(0, 0);
+static int SPRITE_GRASS_2   = SPRITE(1, 0);
+static int SPRITE_SELECTION = SPRITE(0, 1);
+static int SPRITE_FLAG_1    = SPRITE(0, 7);
+static int SPRITE_FLAG_2    = SPRITE(1, 7);
+static int SPRITE_FLAG_3    = SPRITE(2, 7);
+static int SPRITE_FLAG_4    = SPRITE(3, 7);
 
 /*
  *    1
@@ -49,9 +56,16 @@ static int WALL_SPRITES[16] = {
     SPRITE(7, 1)      // 15 - center piece
 };
 
+
 enum UnitType {
     UNIT_TYPE_NONE = 0,
+    UNIT_TYPE_PLAYER,
     UNIT_TYPE_WALL,
+};
+
+enum CommandType {
+    COMMAND_NONE = 0,
+    COMMAND_BUILD_WALL,
 };
 
 typedef struct Unit {
@@ -62,12 +76,8 @@ typedef struct Unit {
     int next_free;
 } Unit;
 
-static Unit null_unit = {0};
-
 typedef struct Cell {
     int type;
-    bool has_wall;
-    int wall_sprite;
     int unit;
 } Cell;
 
@@ -75,9 +85,17 @@ typedef struct {
     Cell cells[MAP_WIDTH * MAP_HEIGHT];
 } Map;
 
+typedef struct Command {
+    int type;
+    int x;
+    int y;
+} Command;
+
 typedef struct Player {
-    int start_x;
-    int start_y;
+    int flag;
+
+    Command commands[COMMAND_COUNT];
+    int command_count;
 } Player;
 
 typedef struct {
@@ -87,6 +105,7 @@ typedef struct {
     int first_free_unit;
 
     Player players[4];
+    int player_count;
 
     Bitmap tilesheet;
 
@@ -116,6 +135,7 @@ static int alloc_unit(int x, int y, int type)
     game.first_free_unit = unit->next_free;
 
     unit->type = type;
+    unit->sprite = 0;
     unit->x = x;
     unit->y = y;
     unit->next_free = NO_UNIT;
@@ -199,16 +219,23 @@ void init_game()
         Cell * cell = &game.map.cells[i];
         cell->type = rand() % 2 == 1 ? SPRITE_GRASS_1 : SPRITE_GRASS_2;
         cell->unit = NO_UNIT;
-        cell->has_wall = false;
     }
 
-    for (int i = 0; i < UNIT_COUNT; ++i)
+    for (int i = 1; i < UNIT_COUNT; ++i)
     {
         Unit * unit = UNIT(i);
         unit->next_free = i < UNIT_COUNT - 1 ? i + 1 : NO_UNIT;
     }
 
-    game.first_free_unit = 0;
+    // We start counting units on 1, because unit 0 is the null unit.
+    game.first_free_unit = 1;
+    game.player_count = 2;
+
+    game.players[0].flag = alloc_unit(11, 11, UNIT_TYPE_PLAYER);
+    game.players[1].flag = alloc_unit(MAP_WIDTH - 11, MAP_HEIGHT - 11, UNIT_TYPE_PLAYER);
+
+    UNIT(game.players[0].flag)->sprite = SPRITE_FLAG_1;
+    UNIT(game.players[1].flag)->sprite = SPRITE_FLAG_2;
 
     game.cursor_x = VIEW_WIDTH / 2;
     game.cursor_y = VIEW_HEIGHT / 2;
@@ -218,12 +245,24 @@ void init_game()
 
 void draw_sprite(int x, int y, int sprite)
 {
-    Rect rect = rect_make_size(SPRITE_X(sprite) * TILE_SIZE, SPRITE_Y(sprite) * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-    bitmap_draw(x * TILE_SIZE, y * TILE_SIZE, 0, 0, &game.tilesheet, &rect, 0, 0);
+    int sprite_x = SPRITE_X(sprite);
+    int sprite_y = SPRITE_Y(sprite);
+
+    if (sprite_y == 7)
+    {
+        Rect rect = rect_make_size(sprite_x * TILE_SIZE, (sprite_y - 1) * TILE_SIZE, TILE_SIZE, TILE_SIZE * 2);
+        bitmap_draw(x * TILE_SIZE, (y - 1) * TILE_SIZE, 0, 0, &game.tilesheet, &rect, 0, 0);
+    }
+    else
+    {
+        Rect rect = rect_make_size(sprite_x * TILE_SIZE, sprite_y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        bitmap_draw(x * TILE_SIZE, y * TILE_SIZE, 0, 0, &game.tilesheet, &rect, 0, 0);
+    }
 }
 
 void draw_game()
 {
+    // Draw map
     for (int y = 0; y < VIEW_HEIGHT; ++y)
         for (int x = 0; x < VIEW_WIDTH; ++x)
         {
@@ -231,17 +270,18 @@ void draw_game()
             draw_sprite(x, y, cell->type);
         }
 
-    for (int i = 0; i < UNIT_COUNT; ++i)
+    // Draw units
+    for (int i = UNIT_COUNT - 1; i > 0; --i)
     {
         Unit * unit = UNIT(i);
-        if (unit->type != UNIT_TYPE_NONE)
+        if (unit->type != UNIT_TYPE_NONE) // Should only draw units that are in the view
             draw_sprite(unit->x - game.offset_x, unit->y - game.offset_y, unit->sprite);
     }
 
     draw_sprite(game.cursor_x - game.offset_x, game.cursor_y - game.offset_y, SPRITE_SELECTION);
 
     char buff[256];
-    snprintf(buff, 255, "%dx%d\n%dx%d\n%dx%d", CORE->mouse_x, CORE->mouse_y, game.cursor_x, game.cursor_y, game.offset_x, game.offset_y);
+    snprintf(buff, 255, "%dx%d - %dx%d", game.cursor_x, game.cursor_y, game.offset_x, game.offset_y);
     text_draw(0, 10, buff, 2);
 }
 
