@@ -39,10 +39,6 @@ void init()
 
 void step()
 {
-	if (key_pressed(KEY_LBUTTON)) {
-		sound_play(&sound1);
-	}
-
 	if (key_pressed(KEY_ESCAPE)) {
 		CORE->running = 0;
 	}

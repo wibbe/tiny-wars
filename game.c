@@ -55,10 +55,17 @@ typedef struct {
     Cell cells[MAP_WIDTH * MAP_HEIGHT];
 } Map;
 
+typedef struct Player {
+
+} Player;
+
 typedef struct {
     Map map;
+
     Unit units[UNIT_COUNT];
-    Unit * free_unit;
+    Unit * first_free_unit;
+
+    Player players[4];
 
     Bitmap tilesheet;
 
@@ -73,11 +80,6 @@ typedef struct {
 
 static Game game = {0};
 
-
-static Cell * cell_at(int x, int y)
-{
-    return &game.map.cells[y * MAP_WIDTH + x];
-}
 
 static int get_wall_count(int x, int y)
 {
@@ -104,7 +106,7 @@ void init_game()
     for (int i = 0; i < MAP_WIDTH * MAP_HEIGHT; ++i)
     {
         Cell * cell = &game.map.cells[i];
-        cell->type = rand() % 5 == 1 ? SPRITE_GRASS_1 : SPRITE_GRASS_2;
+        cell->type = rand() % 2 == 1 ? SPRITE_GRASS_1 : SPRITE_GRASS_2;
         cell->unit = NULL;
         cell->has_wall = false;
     }
@@ -119,17 +121,12 @@ void init_game()
             unit->free = NULL;
     }
 
-    //CELL(10, 10).type = WALL_SPRITES[0];
-    //CELL(11, 10).type = WALL_SPRITES[3];
-
-    game.free_unit = &game.units[0];
+    game.first_free_unit = &game.units[0];
 
     game.cursor_x = VIEW_WIDTH / 2;
     game.cursor_y = VIEW_HEIGHT / 2;
     game.offset_x = 0;
     game.offset_y = 0;
-
-    printf("%d, %d\n", SPRITE_X(SPRITE_GRASS_2), SPRITE_Y(SPRITE_GRASS_2));
 }
 
 void draw_sprite(int x, int y, int type)
@@ -153,12 +150,13 @@ void draw_game()
     draw_sprite(game.cursor_x - game.offset_x, game.cursor_y - game.offset_y, SPRITE_SELECTION);
 
     char buff[256];
-    snprintf(buff, 255, "%dx%d\n%dx%d", game.cursor_x, game.cursor_y, game.offset_x, game.offset_y);
+    snprintf(buff, 255, "%dx%d\n%dx%d\n%dx%d", CORE->mouse_x, CORE->mouse_y, game.cursor_x, game.cursor_y, game.offset_x, game.offset_y);
     text_draw(0, 10, buff, 2);
 }
 
 static void step_cursor()
 {
+    /*
     if (key_pressed(KEY_LEFT))
         game.cursor_x = clamp(game.cursor_x - 1, 0, MAP_WIDTH - 1);
 
@@ -180,15 +178,25 @@ static void step_cursor()
         game.offset_y -= 1;
     if (game.cursor_y > (game.offset_y + VIEW_HEIGHT - 1))
         game.offset_y += 1;
+    */
+
+    game.cursor_x = game.offset_x + (CORE->mouse_x / TILE_SIZE);
+    game.cursor_y = game.offset_y + (CORE->mouse_y / TILE_SIZE);
 }
 
 void step_game()
 {
     step_cursor();
 
-    if (key_pressed(KEY_SPACE))
+    if (key_down(KEY_LBUTTON) && !CURSOR_CELL.has_wall)
     {
-        CURSOR_CELL.has_wall = !CURSOR_CELL.has_wall;
+        CURSOR_CELL.has_wall = true;
+        update_wall_sprites(game.cursor_x, game.cursor_y);
+    }
+
+    if (key_down(KEY_RBUTTON) && CURSOR_CELL.has_wall)
+    {
+        CURSOR_CELL.has_wall = false;
         update_wall_sprites(game.cursor_x, game.cursor_y);
     }
 }
