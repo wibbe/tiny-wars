@@ -1,9 +1,9 @@
-/** 
+/**
  * Copyright (c) 2016 martincohen
  *
  * This library is free software; you can redistribute it and/or modify it
  * under the terms of the MIT license. See LICENSE for details.
- */ 
+ */
 
 /**
  * Version 1.4
@@ -104,7 +104,7 @@ typedef u32      b32;
 // Utility
 //
 
-typedef struct 
+typedef struct
 {
     f64 stamp;
     f32 delta;
@@ -365,7 +365,7 @@ typedef struct
     b32 running;
 
     u32 key_modifiers;
-    
+
     // Indexed with KEY_* constants.
     // 0 for up
     // 1 for down
@@ -377,6 +377,10 @@ typedef struct
     // 1 for changed in this frame
     //
     u8 key_deltas[KEYS_MAX];
+
+    // The mouse position
+    u32 mouse_x;
+    u32 mouse_y;
 
     // Total frame time.
     PerfSpan perf_frame;

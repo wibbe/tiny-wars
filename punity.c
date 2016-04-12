@@ -13,6 +13,7 @@
 // TODO
 #else
 #include <windows.h>
+#include <windowsx.h>
 #include <dsound.h>
 #endif
 
@@ -879,32 +880,60 @@ static LRESULT CALLBACK
 win32_window_callback(HWND window, UINT message, WPARAM wp, LPARAM lp)
 {
     switch (message) {
-        case WM_KEYDOWN: {
-            CORE->key_modifiers = win32_app_key_mods();
-            if (wp < KEYS_MAX) {
-                CORE->key_states[wp] = 1;
-                CORE->key_deltas[wp] = 1;
-                // printf("key pressed: %d\n", wp);
+        case WM_KEYDOWN:
+            {
+                CORE->key_modifiers = win32_app_key_mods();
+                if (wp < KEYS_MAX) {
+                    CORE->key_states[wp] = 1;
+                    CORE->key_deltas[wp] = 1;
+                    // printf("key pressed: %d\n", wp);
+                }
+                return 0;
             }
-            return 0;
-        }
             break;
 
-        case WM_KEYUP: {
-            CORE->key_modifiers = win32_app_key_mods();
-            if (wp < KEYS_MAX) {
-                CORE->key_states[wp] = 0;
-                CORE->key_deltas[wp] = 1;
-                // printf("key released: %d\n", wp);
+        case WM_KEYUP:
+            {
+                CORE->key_modifiers = win32_app_key_mods();
+                if (wp < KEYS_MAX) {
+                    CORE->key_states[wp] = 0;
+                    CORE->key_deltas[wp] = 1;
+                    // printf("key released: %d\n", wp);
+                }
+                return 0;
             }
-            return 0;
-        }
             break;
 
-        case WM_CLOSE: {
-            PostQuitMessage(0);
-            CORE->running = 0;
-        }
+        case WM_MOUSEMOVE:
+            CORE->mouse_x = (int)floor((double)GET_X_LPARAM(lp) / CANVAS_SCALE);
+            CORE->mouse_y = (int)floor((double)GET_Y_LPARAM(lp) / CANVAS_SCALE);
+            break;
+
+        case WM_LBUTTONDOWN:
+            CORE->key_states[KEY_LBUTTON] = 1;
+            CORE->key_deltas[KEY_LBUTTON] = 1;
+            break;
+
+        case WM_LBUTTONUP:
+            CORE->key_states[KEY_LBUTTON] = 0;
+            CORE->key_deltas[KEY_LBUTTON] = 1;
+            break;
+
+        case WM_RBUTTONDOWN:
+            CORE->key_states[KEY_RBUTTON] = 1;
+            CORE->key_deltas[KEY_RBUTTON] = 1;
+            break;
+
+        case WM_RBUTTONUP:
+            CORE->key_states[KEY_RBUTTON] = 0;
+            CORE->key_deltas[KEY_RBUTTON] = 1;
+            break;
+
+        case WM_CLOSE:
+            {
+                PostQuitMessage(0);
+                CORE->running = 0;
+            }
             break;
     }
 
