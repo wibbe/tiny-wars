@@ -106,9 +106,9 @@ typedef struct {
 
     Player players[4];
     int player_count;
+    int current_player;
 
     Bitmap tilesheet;
-
     Font font;
 
     int offset_x;
