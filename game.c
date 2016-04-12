@@ -4,7 +4,7 @@
 #define TILE_SIZE   (8)
 #define VIEW_WIDTH  (CANVAS_WIDTH / TILE_SIZE)
 #define VIEW_HEIGHT (CANVAS_HEIGHT / TILE_SIZE)
-#define UNIT_COUNT  (256)
+#define UNIT_COUNT  (2048)
 
 #define SPRITE(x, y) (((y) << 16) | (x))
 #define SPRITE_X(type) ((type) & 0x00ff)
@@ -235,7 +235,7 @@ void draw_game()
     {
         Unit * unit = UNIT(i);
         if (unit->type != UNIT_TYPE_NONE)
-            draw_sprite(unit->x, unit->y, unit->sprite);
+            draw_sprite(unit->x - game.offset_x, unit->y - game.offset_y, unit->sprite);
     }
 
     draw_sprite(game.cursor_x - game.offset_x, game.cursor_y - game.offset_y, SPRITE_SELECTION);
@@ -247,32 +247,23 @@ void draw_game()
 
 static void step_cursor()
 {
-    /*
+    int width = MAP_WIDTH - VIEW_WIDTH;
+    int height = MAP_HEIGHT - VIEW_HEIGHT;
+
     if (key_pressed(KEY_LEFT))
-        game.cursor_x = clamp(game.cursor_x - 1, 0, MAP_WIDTH - 1);
+        game.offset_x = clamp(game.offset_x - 1, 0, width);
 
     if (key_pressed(KEY_RIGHT))
-        game.cursor_x = clamp(game.cursor_x + 1, 0, MAP_WIDTH - 1);
+        game.offset_x = clamp(game.offset_x + 1, 0, width);
 
     if (key_pressed(KEY_UP))
-        game.cursor_y = clamp(game.cursor_y - 1, 0, MAP_HEIGHT - 1);
+        game.offset_y = clamp(game.offset_y - 1, 0, height);
 
     if (key_pressed(KEY_DOWN))
-        game.cursor_y = clamp(game.cursor_y + 1, 0, MAP_HEIGHT - 1);
+        game.offset_y = clamp(game.offset_y + 1, 0, height);
 
-    if (game.cursor_x < game.offset_x)
-        game.offset_x -= 1;
-    if (game.cursor_x > (game.offset_x + VIEW_WIDTH - 1))
-        game.offset_x += 1;
-
-    if (game.cursor_y < game.offset_y)
-        game.offset_y -= 1;
-    if (game.cursor_y > (game.offset_y + VIEW_HEIGHT - 1))
-        game.offset_y += 1;
-    */
-
-    game.cursor_x = game.offset_x + (CORE->mouse_x / TILE_SIZE);
-    game.cursor_y = game.offset_y + (CORE->mouse_y / TILE_SIZE);
+    game.cursor_x = game.offset_x + CORE->mouse_x / TILE_SIZE;
+    game.cursor_y = game.offset_y + CORE->mouse_y / TILE_SIZE;
 }
 
 void step_game()
