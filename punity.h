@@ -218,6 +218,14 @@ Rect;
 inline Rect rect_make(i32 min_x, i32 min_y, i32 max_x, i32 max_y);
 inline Rect rect_make_size(i32 x, i32 y, i32 w, i32 h);
 
+typedef struct {
+    int x;
+    int y;
+} Vec;
+
+inline Vec vec_make(int x, int y);
+
+
 typedef struct
 {
     i32 width;
@@ -336,6 +344,8 @@ void *resource_get(const char *name, size_t *size);
 //
 // Core
 //
+
+void log_info(const char * mgs, ...);
 
 #define KEYS_MAX 256
 

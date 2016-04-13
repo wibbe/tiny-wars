@@ -203,6 +203,32 @@ fail:
   return NULL;
 }
 
+ini_t* ini_parse(const char *data, size_t len) {
+  ini_t *ini = NULL;
+  int n;
+
+  /* Init ini struct */
+  ini = malloc(sizeof(*ini));
+  if (!ini) {
+      return NULL;
+  }
+  memset(ini, 0, sizeof(*ini));
+
+  /* Load file content into memory, null terminate, init end var */
+  ini->data = malloc(len + 1);
+  ini->data[len] = '\0';
+  ini->end = ini->data  + len;
+
+  for (n = 0; n < len; ++n)
+    ini->data[n] = data[n];
+
+  /* Prepare data */
+  split_data(ini);
+
+  /* Clean up and return */
+  return ini;
+}
+
 
 void ini_free(ini_t *ini) {
   free(ini->data);

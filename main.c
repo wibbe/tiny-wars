@@ -1,29 +1,39 @@
 #include "punity.c"
 #include "game.c"
-
-#define COLOR_BLACK (1)
-#define COLOR_WHITE (2)
+#include "command.c"
+#include "astar.c"
+#include "lib/ini.c"
+#include "lib/index_priority_queue.c"
 
 void init()
 {
-	printf("Loading...\n");
-    CORE->palette.colors[0] = color_make(0x00, 0x00, 0x00, 0x00);
-    CORE->palette.colors[1] = color_make(0x00, 0x00, 0x00, 0xff);
-    CORE->palette.colors[2] = color_make(0xff, 0xff, 0xff, 0xff);
-    CORE->palette.colors[3] = color_make(0x63, 0x9b, 0xff, 0xff);
+    log_info("Loading game\n");
 
-    CORE->palette.colors_count = 4;
+    CORE->palette.colors[COLOR_TRANSPARENT] = color_make(0x00, 0x00, 0x00, 0x00);
+    CORE->palette.colors[COLOR_BLACK] = color_make(0x00, 0x00, 0x00, 0xff);
+    CORE->palette.colors[COLOR_WHITE] = color_make(0xff, 0xff, 0xff, 0xff);
+    CORE->palette.colors[COLOR_LIGHT_GRAY] = color_make(0xdb, 0xdb, 0xdb, 0xff);
+    CORE->palette.colors[COLOR_DARK_GRAY] = color_make(0xcc, 0xcc, 0xcc, 0xff);
+
+    // Player colors
+    CORE->palette.colors[COLOR_PLAYER_1] = color_make(0xff, 0x6a, 0x00, 0xff);
+    CORE->palette.colors[COLOR_PLAYER_2] = color_make(0xff, 0xd8, 0x00, 0xff);
+    CORE->palette.colors[COLOR_PLAYER_3] = color_make(0x00, 0x94, 0xff, 0xff);
+    CORE->palette.colors[COLOR_PLAYER_4] = color_make(0xff, 0x00, 0x6e, 0xff);
+
+    CORE->palette.colors_count = COLOR_COUNT;
+
     canvas_clear(1);
 
-	bitmap_load_resource(&game.tilesheet, "tilesheet.png");
-    bitmap_load_resource(&game.font.bitmap, "font.png");
+	bitmap_load_resource(&GAME.tilesheet, "tilesheet.png");
+    bitmap_load_resource(&GAME.font.bitmap, "font.png");
 
-    game.font.char_width = 4;
-    game.font.char_height = 7;
+    GAME.font.char_width = 4;
+    GAME.font.char_height = 7;
 
-    CORE->font = &game.font;
+    CORE->font = &GAME.font;
 
-    init_game();
+    ASSERT(new_game("menu.map", 2));
 }
 
 void step()

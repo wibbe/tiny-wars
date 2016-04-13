@@ -1,144 +1,74 @@
 
-#define MAP_WIDTH   (80)
-#define MAP_HEIGHT  (60)
-#define TILE_SIZE   (8)
-#define VIEW_WIDTH  (CANVAS_WIDTH / TILE_SIZE)
-#define VIEW_HEIGHT (CANVAS_HEIGHT / TILE_SIZE)
+#include "game.h"
 
-#define UNIT_COUNT      (2048)
-#define COMMAND_COUNT   (256)
+static const int SPRITE_GRASS_1             = SPRITE(0, 0);
+static const int SPRITE_GRASS_2             = SPRITE(1, 0);
+static const int SPRITE_SELECTION           = SPRITE(0, 1);
+static const int SPRITE_MOVE_GOAL_MARKER    = SPRITE(1, 1);
+static const int SPRITE_MOVE_MARKER         = SPRITE(2, 1);
+static const int SPRITE_MOVE_MARKER_INVALID = SPRITE(3, 1);
 
-#define SPRITE(x, y) (((y) << 16) | (x))
-#define SPRITE_X(type) ((type) & 0x00ff)
-#define SPRITE_Y(type) ((type) >> 16)
+#define SPRITE_FLAG(player)     SPRITE(player, 7)
+#define SPRITE_WARIOR(player)   SPRITE(player, 5)
+#define SPRITE_WALL(dir)        SPRITE(dir, 3)
+#define SPRITE_FOG_OF_WAR(dir)  SPRITE(dir, 4)
 
-#define CELL(x, y) (&game.map.cells[(y) * MAP_WIDTH + (x)])
 
-#define CURSOR_CELL (&game.map.cells[(game.cursor_y) * MAP_WIDTH + (game.cursor_x)])
-#define CURSOR_POS game.cursor_x, game.cursor_y
-
-#define NULL_UNIT game.units[0]
-#define UNIT(id) (id == NO_UNIT ? &NULL_UNIT : &game.units[id])
-#define UNIT_POS(x, y) UNIT(CELL(x, y)->unit)
-
-#define HAS_UNIT(x, y) (CELL(x, y)->unit != NO_UNIT)
-#define NO_UNIT (0)
-
-static int SPRITE_GRASS_1   = SPRITE(0, 0);
-static int SPRITE_GRASS_2   = SPRITE(1, 0);
-static int SPRITE_SELECTION = SPRITE(0, 1);
-static int SPRITE_FLAG_1    = SPRITE(0, 7);
-static int SPRITE_FLAG_2    = SPRITE(1, 7);
-static int SPRITE_FLAG_3    = SPRITE(2, 7);
-static int SPRITE_FLAG_4    = SPRITE(3, 7);
-
-/*
- *    1
- *  8 x 2
- *    4
- */
-static int WALL_SPRITES[16] = {
-    SPRITE(7, 0),      //  0 - center column
-    SPRITE(4, 2),     //  1 - top start
-    SPRITE(3, 2),     //  2 - right start
-    SPRITE(2, 1),     //  3 - bottom left corner
-    SPRITE(5, 2),     //  4 - bottom start
-    SPRITE(4, 1),     //  5 - top bottom straight
-    SPRITE(2, 0),     //  6 - top left corner
-    SPRITE(6, 1),    //  7 - top bottom right T
-    SPRITE(2, 2),     //  8 - left start
-    SPRITE(3, 1),     //  9 - bottom right cornder
-    SPRITE(4, 0),     // 10 - left right straight
-    SPRITE(6, 0),    // 11 - left right top T
-    SPRITE(3, 0),     // 12 - top right cornder
-    SPRITE(5, 1),    // 13 - top bottom left T
-    SPRITE(5, 0),    // 14 - left right bottom T
-    SPRITE(7, 1)      // 15 - center piece
+static const Vec OFFSET[8] = {
+    {0, 1},
+    {1, 1},
+    {-1, 1},
+    {1, 0},
+    {-1, 0},
+    {1, -1},
+    {-1, -1},
+    {0, -1},
 };
 
-
-enum UnitType {
-    UNIT_TYPE_NONE = 0,
-    UNIT_TYPE_PLAYER,
-    UNIT_TYPE_WALL,
+static const char * COMMAND_NAMES[] = {
+    "None",
+    "Construct",
+    "MoveTo",
 };
 
-enum CommandType {
-    COMMAND_NONE = 0,
-    COMMAND_BUILD_WALL,
-};
-
-typedef struct Unit {
-    int type;
-    int sprite;
-    int x;
-    int y;
-    int next_free;
-} Unit;
-
-typedef struct Cell {
-    int type;
-    int unit;
-} Cell;
-
-typedef struct {
-    Cell cells[MAP_WIDTH * MAP_HEIGHT];
-} Map;
-
-typedef struct Command {
-    int type;
-    int x;
-    int y;
-} Command;
-
-typedef struct Player {
-    int flag;
-
-    Command commands[COMMAND_COUNT];
-    int command_count;
-} Player;
-
-typedef struct {
-    Map map;
-
-    Unit units[UNIT_COUNT];
-    int first_free_unit;
-
-    Player players[4];
-    int player_count;
-    int current_player;
-
-    Bitmap tilesheet;
-    Font font;
-
-    int offset_x;
-    int offset_y;
-
-    int cursor_x;
-    int cursor_y;
-} Game;
-
-static Game game = {0};
+Game GAME = {0};
 
 
-static int alloc_unit(int x, int y, int type)
+static int alloc_unit(int x, int y, int type, int owner)
 {
-    if (game.first_free_unit == NO_UNIT)
+    if (GAME.first_free_unit == NO_UNIT)
         return NO_UNIT;
 
     if (HAS_UNIT(x, y))
         return NO_UNIT;
 
-    int id = game.first_free_unit;
+    int id = GAME.first_free_unit;
     Unit * unit = UNIT(id);
 
-    game.first_free_unit = unit->next_free;
+    GAME.first_free_unit = unit->next_free;
 
     unit->type = type;
-    unit->sprite = 0;
+    unit->owner = owner;
     unit->x = x;
     unit->y = y;
     unit->next_free = NO_UNIT;
+
+    switch (type)
+    {
+        case UNIT_TYPE_WALL:
+            unit->sprite = SPRITE_WALL(0);
+            break;
+
+        case UNIT_TYPE_PLAYER:
+            ASSERT(owner != -1);
+            unit->sprite = SPRITE_FLAG(owner);
+            break;
+
+        case UNIT_TYPE_WARIOR:
+            ASSERT(owner != -1);
+            unit->sprite = SPRITE_WARIOR(owner);
+            break;
+    }
 
     CELL(x, y)->unit = id;
 
@@ -149,10 +79,20 @@ static void free_unit(int id)
 {
     Unit * unit = UNIT(id);
     unit->type = UNIT_TYPE_NONE;
-    unit->next_free = game.first_free_unit;
-    game.first_free_unit = id;
+    unit->owner = -1;
+    unit->next_free = GAME.first_free_unit;
+    GAME.first_free_unit = id;
 
     CELL(unit->x, unit->y)->unit = NO_UNIT;
+}
+
+static void issue_command(int unit_id, Command command)
+{
+    log_info("Command (type = %d, x = %d, y = %d) issued on %d by player %d\n", command.type, command.x, command.y, unit_id, GAME.current_player);
+    Unit * unit = UNIT(unit_id);
+    unit->command = command;
+    unit->offset_x = 0;
+    unit->offset_y = 0;
 }
 
 static bool has_unit_type(int x, int y, int type)
@@ -166,6 +106,33 @@ static bool has_unit_type(int x, int y, int type)
 static bool has_wall(int x, int y)
 {
     return has_unit_type(x, y, UNIT_TYPE_WALL);
+}
+
+bool is_passable(int x, int y)
+{
+    if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT)
+        return false;
+
+    Cell * cell = CELL(x, y);
+    return !cell->blocked && cell->unit == NO_UNIT;
+}
+
+static bool move_unit(int unit_id, int x, int y)
+{
+    if (is_passable(x, y))
+    {
+        Unit * unit = UNIT(unit_id);
+        CELL(unit->x, unit->y)->unit = NO_UNIT;
+
+        unit->x = x;
+        unit->y = y;
+        CELL(unit->x, unit->y)->unit = unit_id;
+
+        reveal_fog_of_war(unit->owner, x, y);
+        return true;
+    }
+
+    return false;
 }
 
 static int get_wall_count(int x, int y)
@@ -183,12 +150,12 @@ static int get_wall_count(int x, int y)
 static void update_wall_sprites(int x, int y)
 {
     if (has_wall(x, y))
-        UNIT_POS(x, y)->sprite = WALL_SPRITES[get_wall_count(x, y)];
+        UNIT_POS(x, y)->sprite = SPRITE_WALL(get_wall_count(x, y));
 }
 
 static void build_wall(int x, int y)
 {
-    int wall = alloc_unit(x, y, UNIT_TYPE_WALL);
+    int wall = alloc_unit(x, y, UNIT_TYPE_WALL, -1);
     if (wall == NO_UNIT)
         return;
 
@@ -212,51 +179,270 @@ static void demolish_wall(int x, int y)
     update_wall_sprites(x, y - 1);
 }
 
+static int get_fog_of_war_sprite(bool * fog_of_war, int x, int y)
+{
+    #define HAS_FOG(x, y) (x) >= 0 && (x) < MAP_WIDTH && (y) >= 0 && (y) < MAP_HEIGHT && fog_of_war[(y) * MAP_WIDTH + (x)]
+
+    int count = 0;
+
+    if (HAS_FOG(x, y - 1)) count += 1;
+    if (HAS_FOG(x + 1, y)) count += 2;
+    if (HAS_FOG(x, y + 1)) count += 4;
+    if (HAS_FOG(x - 1, y)) count += 8;
+
+    if (count == 0)
+    {
+        if (HAS_FOG(x + 1, y - 1)) count = 16;
+        if (HAS_FOG(x + 1, y + 1)) count = 17;
+        if (HAS_FOG(x - 1, y + 1)) count = 18;
+        if (HAS_FOG(x - 1, y - 1)) count = 19;
+    }
+
+    #undef HAS_FOG
+
+    return count == 0 ? -1 : SPRITE_FOG_OF_WAR(count);
+}
+
+void reveal_fog_of_war(int player_id, int x, int y)
+{
+    static const bool area[] = {
+        0, 1, 1, 1, 1, 1, 0,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        0, 1, 1, 1, 1, 1, 0,
+    };
+
+    Player * player = PLAYER(player_id);
+    for (int off_y = -3; off_y < 4; ++off_y)
+    {
+        int ny = y + off_y;
+
+        for (int off_x = -3; off_x < 4; ++off_x)
+        {
+            int nx = x + off_x;
+            int area_idx = (off_y + 3) * 7 + (off_x + 3);
+
+            if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT && area[area_idx])
+                player->fog_of_war[ny * MAP_WIDTH + nx] = false;
+        }
+    }
+}
+
 void init_game()
 {
     for (int i = 0; i < MAP_WIDTH * MAP_HEIGHT; ++i)
     {
-        Cell * cell = &game.map.cells[i];
-        cell->type = rand() % 2 == 1 ? SPRITE_GRASS_1 : SPRITE_GRASS_2;
+        Cell * cell = &GAME.map.cells[i];
+        cell->sprite = NO_SPRITE;
+        cell->blocked = false;
         cell->unit = NO_UNIT;
+    }
+
+    { // Null unit
+        NULL_UNIT->type = UNIT_TYPE_NONE;
+        NULL_UNIT->owner = NO_PLAYER;
     }
 
     for (int i = 1; i < UNIT_COUNT; ++i)
     {
         Unit * unit = UNIT(i);
+        unit->type = UNIT_TYPE_NONE;
+        unit->owner = NO_PLAYER;
         unit->next_free = i < UNIT_COUNT - 1 ? i + 1 : NO_UNIT;
     }
 
+    for (int i = 0; i < PLAYER_COUNT; ++i)
+    {
+        Player * player = PLAYER(i);
+        player->id = i;
+        player->flag = NO_UNIT;
+        player->stage_done = false;
+
+        // Hide every part of the map with fog-of-war
+        for (int j = 0; j < MAP_WIDTH * MAP_HEIGHT; ++j)
+            player->fog_of_war[j] = true;
+    }
+
     // We start counting units on 1, because unit 0 is the null unit.
-    game.first_free_unit = 1;
-    game.player_count = 2;
-
-    game.players[0].flag = alloc_unit(11, 11, UNIT_TYPE_PLAYER);
-    game.players[1].flag = alloc_unit(MAP_WIDTH - 11, MAP_HEIGHT - 11, UNIT_TYPE_PLAYER);
-
-    UNIT(game.players[0].flag)->sprite = SPRITE_FLAG_1;
-    UNIT(game.players[1].flag)->sprite = SPRITE_FLAG_2;
-
-    game.cursor_x = VIEW_WIDTH / 2;
-    game.cursor_y = VIEW_HEIGHT / 2;
-    game.offset_x = 0;
-    game.offset_y = 0;
+    GAME.first_free_unit = 1;
+    GAME.selected_unit = NO_UNIT;
+    GAME.player_count = 0;
+    GAME.cursor_x = VIEW_WIDTH / 2;
+    GAME.cursor_y = VIEW_HEIGHT / 2;
+    GAME.offset_x = 0;
+    GAME.offset_y = 0;
+    GAME.stage = STAGE_ISSUE_COMMAND;
+    GAME.stage_initiative_player = 0;
 }
 
-void draw_sprite(int x, int y, int sprite)
+bool new_game(const char * map_name, int player_count)
+{
+    void * map_data;
+    size_t map_size;
+
+    init_game();
+
+    map_data = resource_get(map_name, &map_size);
+    ini_t * map = ini_parse((const char *)map_data, map_size);
+
+    GAME.player_count = player_count;
+    GAME.current_player = 0;
+    GAME.local_player = 0;
+
+    for (int y = 0; y < MAP_HEIGHT; ++y)
+    {
+        char buf[3];
+        snprintf(buf, 3, "%02d", y + 1);
+        const char * row = ini_get(map, "map", buf);
+        if (strlen(row) != MAP_WIDTH)
+            goto fail;
+
+        for (int x = 0; x < MAP_WIDTH; ++x)
+        {
+            switch (row[x])
+            {
+                case 'x':   // wall
+                    alloc_unit(x, y, UNIT_TYPE_WALL, -1);
+
+                case '.':   // grass
+                    CELL(x, y)->sprite = SPRITE_GRASS_1;
+                    break;
+
+                case '1':   // player 1-4 start
+                case '2':
+                case '3':
+                case '4':
+                    {
+                        int player = row[x] - '1';
+                        CELL(x, y)->sprite = SPRITE_GRASS_1;
+                        PLAYER(player)->flag = alloc_unit(x, y, UNIT_TYPE_PLAYER, player);
+                        reveal_fog_of_war(player, x, y);
+                    }
+                    break;
+
+                default:   // default all cells to grass
+                    CELL(x, y)->sprite = SPRITE_GRASS_1;
+                    break;
+            }
+        }
+    }
+
+    // Create the first unit for the players
+    for (int p = 0; p < GAME.player_count; ++p)
+    {
+        Player * player = PLAYER(p);
+        Unit * flag = UNIT(player->flag);
+
+        for (int i = 0; i < 8; ++i)
+        {
+            if (is_passable(OFFSET[i].x + flag->x, OFFSET[i].y + flag->y))
+            {
+                alloc_unit(OFFSET[i].x + flag->x, OFFSET[i].y + flag->y, UNIT_TYPE_WARIOR, p);
+                reveal_fog_of_war(p, OFFSET[i].x + flag->x, OFFSET[i].y + flag->y);
+                break;
+            }
+        }
+    }
+
+    // Update wall sprites
+    for (int y = 0; y < MAP_HEIGHT; ++y)
+        for (int x = 0; x < MAP_WIDTH; ++x)
+            update_wall_sprites(x, y);
+
+    ini_free(map);
+    return true;
+
+fail:
+    ini_free(map);
+    return false;
+}
+
+void draw_sprite(int x, int y, int offset_x, int offset_y, int sprite)
 {
     int sprite_x = SPRITE_X(sprite);
     int sprite_y = SPRITE_Y(sprite);
+    int real_x = 0;
+    int real_y = 0;
+    Rect rect;
 
     if (sprite_y == 7)
     {
-        Rect rect = rect_make_size(sprite_x * TILE_SIZE, (sprite_y - 1) * TILE_SIZE, TILE_SIZE, TILE_SIZE * 2);
-        bitmap_draw(x * TILE_SIZE, (y - 1) * TILE_SIZE, 0, 0, &game.tilesheet, &rect, 0, 0);
+        rect = rect_make_size(sprite_x * TILE_SIZE, (sprite_y - 1) * TILE_SIZE, TILE_SIZE, TILE_SIZE * 2);
+
+        real_x = (x - GAME.offset_x) * TILE_SIZE + offset_x;
+        real_y = (y - 1 - GAME.offset_y) * TILE_SIZE + offset_y;
     }
     else
     {
-        Rect rect = rect_make_size(sprite_x * TILE_SIZE, sprite_y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-        bitmap_draw(x * TILE_SIZE, y * TILE_SIZE, 0, 0, &game.tilesheet, &rect, 0, 0);
+        rect = rect_make_size(sprite_x * TILE_SIZE, sprite_y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        real_x = (x - GAME.offset_x) * TILE_SIZE + offset_x;
+        real_y = (y - GAME.offset_y) * TILE_SIZE + offset_y;
+    }
+    bitmap_draw(real_x, real_y, 0, 0, &GAME.tilesheet, &rect, 0, 0);
+}
+
+void draw_construct(Unit * unit, int id)
+{
+    //if (unit->command.progress == 0)
+    //    return;
+
+    int x = (unit->x - GAME.offset_x) * TILE_SIZE;
+    int y = (unit->y - GAME.offset_y) * TILE_SIZE;
+
+    rect_draw(rect_make_size(x, y + TILE_SIZE - 1, unit->command.progress, 1), COLOR_PLAYER_1 + unit->owner);
+    rect_draw(rect_make_size(x + unit->command.progress, y + TILE_SIZE - 1, 8 - unit->command.progress, 1), COLOR_LIGHT_GRAY);
+}
+
+void draw_move_to(Unit * unit, int id, bool selected)
+{
+    if (selected)
+    {
+        for (int i = 0; i < COMMAND_ARG_COUNT; ++i)
+        {
+
+            int idx = unit->command.args[i];
+            if (idx == -1)
+                continue;
+
+            int x = idx % MAP_WIDTH;
+            int y = idx / MAP_WIDTH;
+
+            draw_sprite(x, y, 0, 0, i < 2 ? SPRITE_MOVE_MARKER : SPRITE_MOVE_MARKER_INVALID);
+        }
+    }
+
+    draw_sprite(unit->command.x, unit->command.y, 0, 0, SPRITE_MOVE_GOAL_MARKER);
+}
+
+void draw_selected_unit(Unit * unit, int id)
+{
+    switch (unit->command.type)
+    {
+        case COMMAND_MOVE_TO:
+            draw_move_to(unit, id, true);
+            break;
+    }
+}
+
+void draw_unit(Unit * unit, int id)
+{
+    draw_sprite(unit->x, unit->y, unit->offset_x, unit->offset_y, unit->sprite);
+
+    if (unit->owner == GAME.current_player)
+    {
+        switch (unit->command.type)
+        {
+            case COMMAND_CONSTRUCT:
+                draw_construct(unit, id);
+                break;
+
+            case COMMAND_MOVE_TO:
+                draw_move_to(unit, id, false);
+                break;
+        }
     }
 }
 
@@ -266,8 +452,8 @@ void draw_game()
     for (int y = 0; y < VIEW_HEIGHT; ++y)
         for (int x = 0; x < VIEW_WIDTH; ++x)
         {
-            Cell * cell = CELL(game.offset_x + x, game.offset_y + y);
-            draw_sprite(x, y, cell->type);
+            Cell * cell = CELL(GAME.offset_x + x, GAME.offset_y + y);
+            draw_sprite(GAME.offset_x + x, GAME.offset_y + y, 0, 0, cell->sprite);
         }
 
     // Draw units
@@ -275,14 +461,49 @@ void draw_game()
     {
         Unit * unit = UNIT(i);
         if (unit->type != UNIT_TYPE_NONE) // Should only draw units that are in the view
-            draw_sprite(unit->x - game.offset_x, unit->y - game.offset_y, unit->sprite);
+            draw_unit(unit, i);
     }
 
-    draw_sprite(game.cursor_x - game.offset_x, game.cursor_y - game.offset_y, SPRITE_SELECTION);
+    if (GAME.selected_unit != NO_UNIT)
+    {
+        Unit * unit = UNIT(GAME.selected_unit);
+
+        draw_selected_unit(unit, GAME.selected_unit);
+        draw_sprite(unit->x, unit->y, 0, 0, SPRITE_SELECTION);
+    }
+
+    // Draw fog-of-war
+    bool * fog_of_war = CURRENT_PLAYER->fog_of_war;
+    for (int y = 0; y < VIEW_HEIGHT; ++y)
+        for (int x = 0; x < VIEW_WIDTH; ++x)
+        {
+            int px = GAME.offset_x + x;
+            int py = GAME.offset_y + y;
+            int idx = py * MAP_WIDTH + px;
+
+            if (fog_of_war[idx])
+            {
+                draw_sprite(px, py, 0, 0, SPRITE_FOG_OF_WAR(0));
+            }
+            else
+            {
+                int sprite = get_fog_of_war_sprite(fog_of_war, px, py);
+                if (sprite >= 0)
+                    draw_sprite(px, py, 0, 0, sprite);
+            }
+        }
 
     char buff[256];
-    snprintf(buff, 255, "%dx%d - %dx%d", game.cursor_x, game.cursor_y, game.offset_x, game.offset_y);
+    snprintf(buff, 255, "P: %d\nI: %d\nU: %d\nS: %d\nD: %d%d%d%d",
+             GAME.current_player, GAME.stage_initiative_player, GAME.selected_unit, GAME.stage,
+             PLAYER(0)->stage_done, PLAYER(1)->stage_done, PLAYER(2)->stage_done, PLAYER(3)->stage_done);
     text_draw(0, 10, buff, 2);
+
+    if (GAME.selected_unit != NO_UNIT)
+    {
+        snprintf(buff, 255, "X:%d Y:%d O:%d C:%s CP:%d", SELECTED_UNIT->x, SELECTED_UNIT->y, SELECTED_UNIT->owner, COMMAND_NAMES[SELECTED_UNIT->command.type], SELECTED_UNIT->command.progress);
+        text_draw(0, CANVAS_HEIGHT - 8, buff, 2);
+    }
 }
 
 static void step_cursor()
@@ -291,25 +512,184 @@ static void step_cursor()
     int height = MAP_HEIGHT - VIEW_HEIGHT;
 
     if (key_pressed(KEY_LEFT))
-        game.offset_x = clamp(game.offset_x - 1, 0, width);
+        GAME.offset_x = clamp(GAME.offset_x - 1, 0, width);
 
     if (key_pressed(KEY_RIGHT))
-        game.offset_x = clamp(game.offset_x + 1, 0, width);
+        GAME.offset_x = clamp(GAME.offset_x + 1, 0, width);
 
     if (key_pressed(KEY_UP))
-        game.offset_y = clamp(game.offset_y - 1, 0, height);
+        GAME.offset_y = clamp(GAME.offset_y - 1, 0, height);
 
     if (key_pressed(KEY_DOWN))
-        game.offset_y = clamp(game.offset_y + 1, 0, height);
+        GAME.offset_y = clamp(GAME.offset_y + 1, 0, height);
 
-    game.cursor_x = game.offset_x + CORE->mouse_x / TILE_SIZE;
-    game.cursor_y = game.offset_y + CORE->mouse_y / TILE_SIZE;
+    GAME.cursor_x = GAME.offset_x + CORE->mouse_x / TILE_SIZE;
+    GAME.cursor_y = GAME.offset_y + CORE->mouse_y / TILE_SIZE;
+}
+
+static void player_done()
+{
+    CURRENT_PLAYER->stage_done = true;
+    GAME.selected_unit = NO_UNIT;
+
+    GAME.current_player = (GAME.current_player + 1) % GAME.player_count;
+}
+
+static void step_player()
+{
+    if (CURRENT_PLAYER->stage_done)
+        return;
+
+    int hover_unit_id = CELL(GAME.cursor_x, GAME.cursor_y)->unit;
+    Unit * hover_unit = UNIT(hover_unit_id);
+
+    if (key_pressed(KEY_LBUTTON))
+    {
+        if (hover_unit->owner == GAME.current_player)
+            GAME.selected_unit = hover_unit_id;
+        else
+            GAME.selected_unit = NO_UNIT;
+    }
+
+    // Issue commands to units
+    if (key_pressed(KEY_RBUTTON) && GAME.selected_unit != NO_UNIT)
+    {
+        if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR && is_passable(CURSOR_POS) && astar_compute(SELECTED_UNIT->x, SELECTED_UNIT->y, CURSOR_POS, NULL, 0))
+            issue_command(GAME.selected_unit, command_move_to(SELECTED_UNIT, CURSOR_POS));
+    }
+
+    if (key_pressed(KEY_B) && SELECTED_UNIT->type == UNIT_TYPE_PLAYER)
+    {
+        for (int i = 0; i < 8; ++i)
+        {
+            if (is_passable(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y))
+            {
+                issue_command(CURRENT_PLAYER->flag, command_construct(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y, UNIT_TYPE_WARIOR));
+                break;
+            }
+        }
+    }
+
+    if (key_pressed(KEY_SPACE))
+        player_done();
+}
+
+static void switch_player()
+{
+    if (key_pressed(KEY_1))
+    {
+        GAME.current_player = 0;
+        GAME.selected_unit = NO_UNIT;
+    }
+
+    if (key_pressed(KEY_2) && GAME.player_count >= 2)
+    {
+        GAME.current_player = 1;
+        GAME.selected_unit = NO_UNIT;
+    }
+
+    if (key_pressed(KEY_3) && GAME.player_count >= 3)
+    {
+        GAME.current_player = 2;
+        GAME.selected_unit = NO_UNIT;
+    }
+
+    if (key_pressed(KEY_4) && GAME.player_count >= 4)
+    {
+        GAME.current_player = 3;
+        GAME.selected_unit = NO_UNIT;
+    }
+}
+
+static void step_issue_commands()
+{
+    step_player();
+    switch_player();
+
+    bool all_done = true;
+    for (int p = 0; p < GAME.player_count; ++p)
+        all_done &= PLAYER(p)->stage_done;
+
+    if (all_done)
+    {
+        GAME.stage = STAGE_COMMAND_PLAYBACK;
+        GAME.playback_frame = 0;
+    }
+}
+
+static void step_unit_commands(int player_id, int unit_id, int frame)
+{
+    Unit * unit = UNIT(unit_id);
+
+    switch (unit->command.type)
+    {
+        case COMMAND_MOVE_TO:
+            step_move_to(player_id, unit_id, frame);
+            break;
+
+        case COMMAND_CONSTRUCT:
+            step_construct(player_id, unit_id, frame);
+    }
+}
+
+static void step_player_commands(int player_id, int frame)
+{
+    for (int i = 0; i < UNIT_COUNT; ++i)
+    {
+        if (UNIT(i)->owner == player_id)
+            step_unit_commands(player_id, i, frame);
+    }
+}
+
+static void step_commands()
+{
+    int frame = GAME.playback_frame % PLAYBACK_FRAME_COUNT;
+    int player = (GAME.stage_initiative_player + (GAME.playback_frame / PLAYBACK_FRAME_COUNT)) % GAME.player_count;
+    GAME.current_player = player;
+
+    step_player_commands(player, frame);
+
+    //printf("Total: %d Frame: %d, Player: %d\n", GAME.playback_frame, frame, player);
+    //fflush(stdout);
+
+    GAME.playback_frame++;
+
+    if (GAME.playback_frame >= (PLAYBACK_FRAME_COUNT * GAME.player_count))
+    {
+        GAME.stage = STAGE_ISSUE_COMMAND;
+
+        GAME.current_player = GAME.local_player;
+        GAME.stage_initiative_player = (GAME.stage_initiative_player + 1) % GAME.player_count;
+
+        for (int p = 0; p < GAME.player_count; ++p)
+        {
+            Player * player = PLAYER(p);
+            player->stage_done = false;
+        }
+    }
+}
+
+static void step_stage()
+{
+    switch (GAME.stage)
+    {
+        case STAGE_ISSUE_COMMAND:
+            step_issue_commands();
+            break;
+
+        case STAGE_COMMAND_PLAYBACK:
+            step_commands();
+            break;
+    }
 }
 
 void step_game()
 {
     step_cursor();
+    step_stage();
 
+
+/*
     if (key_down(KEY_LBUTTON) && !has_wall(CURSOR_POS))
     {
         build_wall(CURSOR_POS);
@@ -319,4 +699,5 @@ void step_game()
     {
         demolish_wall(CURSOR_POS);
     }
+*/
 }

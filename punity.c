@@ -293,6 +293,14 @@ rect_check_limits(Rect *rect, i32 min_x, i32 min_y, i32 max_x, i32 max_y)
            (rect->min_y <= rect->max_y);
 }
 
+extern inline Vec vec_make(int x, int y)
+{
+    Vec v;
+    v.x = x;
+    v.y = y;
+    return v;
+}
+
 //
 // Canvas
 //
@@ -631,7 +639,7 @@ punp_sound_load_stbv(Sound *sound, stb_vorbis *stream)
 
     static i16 buffer[1024];
     i16 *it = sound->samples;
-    int samples_read_per_channel;
+
     for (; ;) {
         int samples_read_per_channel =
                 stb_vorbis_get_samples_short_interleaved(stream, PUNP_SOUND_CHANNELS, buffer, 1024);
@@ -979,6 +987,15 @@ resource_get(const char *name, size_t *size)
     return ptr;
 }
 
+void log_info(const char * mgs, ...)
+{
+    va_list args;
+    va_start(args, mgs);
+    vprintf(mgs, args);
+    fflush(stdout);
+    va_end(args);
+}
+
 //
 // Sound
 //
@@ -989,10 +1006,11 @@ static WAVEFORMATEX punp_win32_audio_format = {0};
 static DSBUFFERDESC punp_win32_audio_buffer_description = {0};
 
 typedef HRESULT(WINAPI*DirectSoundCreate8F)(LPGUID,LPDIRECTSOUND8*,LPUNKNOWN);
-//#define DIRECT_SOUND_CREATE(name) \
-//    HRESULT name(LPCGUID pcGuidDevice, LPDIRECTSOUND8 *ppDS, LPUNKNOWN pUnkOuter)
-//typedef DIRECT_SOUND_CREATE(DirectSoundCreateF);
-
+/*
+#define DIRECT_SOUND_CREATE(name) \
+    HRESULT name(LPCGUID pcGuidDevice, LPDIRECTSOUND8 *ppDS, LPUNKNOWN pUnkOuter)
+typedef DIRECT_SOUND_CREATE(DirectSoundCreateF);
+*/
 static bool
 punp_win32_sound_init()
 {
@@ -1213,17 +1231,15 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_line, int sho
     punp_win32_instance = instance;
     QueryPerformanceFrequency((LARGE_INTEGER *)&punp_win32_perf_counter_frequency);
 
-    UINT desired_sleep_ms = 1;
-    bool sleep_is_granular = false; /*(timeBeginPeriod(desired_sleep_ms) == TIMERR_NOERROR);*/
-
 #ifndef RELEASE_BUILD
-    printf("Debug build...");
-    if (AttachConsole(ATTACH_PARENT_PROCESS) || AllocConsole()) {
+    printf("Debug build...\n");
+    if (AttachConsole(ATTACH_PARENT_PROCESS) || AllocConsole())
+    {
         freopen("CONOUT$", "w", stdout);
         freopen("CONOUT$", "w", stderr);
     }
 #else
-    printf("Release build...");
+    printf("Release build...\n");
 #endif
 
     WNDCLASSA window_class = {0};
@@ -1236,7 +1252,8 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_line, int sho
     window_class.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     window_class.lpszClassName = "Punity";
 
-    if (!RegisterClassA(&window_class)) {
+    if (!RegisterClassA(&window_class))
+    {
         printf("RegisterClassA failed.\n");
         return 1;
     }
@@ -1294,18 +1311,14 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_line, int sho
 
 	// Sound
 
-	if (punp_win32_sound_init() == 0) {
+	if (punp_win32_sound_init() == 0)
 		punp_win32_audio_buffer = 0;
-	}
-
 
     init();
-
 
     // TODO: Center window
     ShowWindow(punp_win32_window, SW_SHOW);
 
-    f64 frame_time_stamp, frame_time_now, frame_time_delta;
     int x, y;
     u32 *window_row;
     u8 *canvas_it;
@@ -1340,9 +1353,11 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_line, int sho
         perf_from(&CORE->perf_blit);
 		perf_from(&CORE->perf_blit_cvt);
         canvas_it = CORE->canvas->pixels;
-        for (y = CANVAS_HEIGHT; y != 0; --y) {
+        for (y = CANVAS_HEIGHT; y != 0; --y)
+        {
             window_row = window_buffer + ((y - 1) * CANVAS_WIDTH);
-            for (x = 0; x != CANVAS_WIDTH; ++x) {
+            for (x = 0; x != CANVAS_WIDTH; ++x)
+            {
                 *(window_row++) = CORE->palette.colors[*canvas_it++].rgba;
             }
         }
@@ -1368,7 +1383,8 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_line, int sho
 		perf_to(&CORE->perf_frame_inner);
 
         f32 frame_delta = perf_delta(&CORE->perf_frame);
-        if (frame_delta < PUNP_FRAME_TIME) {
+        if (frame_delta < PUNP_FRAME_TIME)
+        {
 			// printf("sleeping ... %.3f\n", (f32)PUNP_FRAME_TIME - frame_delta);
             Sleep((PUNP_FRAME_TIME - frame_delta) * 1e3);
         }
