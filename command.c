@@ -1,20 +1,34 @@
 
 #include "game.h"
 
-Command command_move_to(Unit * unit, int x, int y)
+void issue_command(int unit_id, Unit * unit)
 {
-    Command cmd = {
-        .type = COMMAND_MOVE_TO,
-        .x = x,
-        .y = y,
-    };
-
-    astar_compute(unit->x, unit->y, cmd.x, cmd.y, cmd.args, COMMAND_ARG_COUNT);
-    return cmd;
+    log_info("Command (type = %d, x = %d, y = %d) issued on %d by player %d\n", unit->command.type, unit->command.x, unit->command.y, unit_id, unit->owner);
 }
 
-Command command_construct(int x, int y, int type)
+void command_move_to(int player_id, int unit_id, int x, int y)
 {
+    if (!is_passable(x, y))
+        return;
+
+    Unit * unit = UNIT(unit_id);
+
+    if (!astar_compute(unit->x, unit->y, x, y, unit->move_path, PATH_LENGTH))
+        return;
+
+    unit->command.type = COMMAND_MOVE_TO;
+    unit->moving = true;
+    unit->move_target_x = x;
+    unit->move_target_y = y;
+    unit->offset_x = 0;
+    unit->offset_y = 0;
+
+    issue_command(unit_id, unit);
+}
+
+void command_construct(int player_id, int unit_id, int x, int y, int type)
+{
+    /*
     int length = 0;
     switch (type)
     {
@@ -27,114 +41,35 @@ Command command_construct(int x, int y, int type)
             break;
     }
 
-    Command cmd = {
-        .type = COMMAND_CONSTRUCT,
-        .progress = 0,
-        .unit = type,
-        .x = x,
-        .y = y,
-        .args = {0, length, 0, 0},
-    };
-    return cmd;
-}
-
-static bool move_to_next(int unit_id)
-{
     Unit * unit = UNIT(unit_id);
 
-    // Stop if we are already there
-    if (unit->x == unit->command.x && unit->y == unit->command.y)
-    {
-        unit->command.type = COMMAND_NONE;
-        return true;
-    }
+    unit->command.type = COMMAND_CONSTRUCT;
+    unit->command.progress = 0;
+    unit->command.unit = type;
+    unit->command.x = x;
+    unit->command.y = y;
+    unit->command.args = {0, length, 0, 0};
 
-    if (!astar_compute(unit->x, unit->y, unit->command.x, unit->command.y, unit->command.args, COMMAND_ARG_COUNT))
-    {
-        // No solution found
-        return true;
-    }
+    int diff_x = abs(unit->x - x);
+    int diff_y = abs(unit->y - y);
 
-    int next_x = unit->command.args[0] % MAP_WIDTH;
-    int next_y = unit->command.args[0] / MAP_WIDTH;
+    // Do we need to move the unit to the construction sire first?
+    //if (diff_x > 1 || diff_y > 1)
 
-    // Initialize movement
-    int diff_x = next_x - unit->x;
-    int diff_y = next_y - unit->y;
-
-    if (move_unit(unit_id, next_x, next_y))
-    {
-        unit->offset_x = (diff_x > 0 ? -TILE_SIZE : (diff_x < 0 ? TILE_SIZE : 0));
-        unit->offset_y = (diff_y > 0 ? -TILE_SIZE : (diff_y < 0 ? TILE_SIZE : 0));
-    }
-
-    return false;
+    issue_command(unit_id, unit);
+    */
 }
 
 bool step_move_to(int cmd, int player_id, int unit_id, int frame)
 {
     Unit * unit = UNIT(unit_id);
 
-    if (cmd == PLAYBACK_START)
-    {
-        // Just finish directly if we could not find a path forward
-        if (!astar_compute(unit->x, unit->y, unit->command.x, unit->command.y, unit->command.args, COMMAND_ARG_COUNT))
-            return true;
+    bool done = unit_move_to(cmd == PLAYBACK_START, unit_id, frame);
 
-        bool unit_in_view = in_view_of_local_player(unit->x, unit->y);
-        bool first_target_in_view = unit->command.args[0] == -1 ? false : in_view_of_local_player(unit->command.args[0] % MAP_WIDTH, unit->command.args[0] / MAP_WIDTH);
-        bool second_target_in_view = unit->command.args[1] == -1 ? false : in_view_of_local_player(unit->command.args[1] % MAP_WIDTH, unit->command.args[1] / MAP_WIDTH);
+    if (done && !unit->moving)
+        unit->command.type = COMMAND_NONE;
 
-        // If anything is in view, we need to continue on to the animation stage
-        if (unit_in_view || first_target_in_view || second_target_in_view)
-            return false;
-
-        // Otherwise we just move the player to the correct cells. We need to do both of the moves, so we unveil the fog-of-war correctly
-        if (unit->command.args[0] != -1)
-            move_unit(unit_id, unit->command.args[0] % MAP_WIDTH, unit->command.args[0] / MAP_WIDTH);
-        if (unit->command.args[1] != -1)
-            move_unit(unit_id, unit->command.args[1] % MAP_WIDTH, unit->command.args[1] / MAP_WIDTH);
-
-        // Are we done with the move command?
-        if (unit->x == unit->command.x && unit->y == unit->command.y)
-            unit->command.type = COMMAND_NONE;
-        else
-            astar_compute(unit->x, unit->y, unit->command.x, unit->command.y, unit->command.args, COMMAND_ARG_COUNT);
-
-        return true;
-    }
-    else
-    {
-        // Animate the player
-        if (frame == 0 || frame == (PLAYBACK_FRAME_COUNT / 2))
-        {
-            if (move_to_next(unit_id))
-                return true;
-        }
-        else if (frame == PLAYBACK_FRAME_COUNT)
-        {
-            astar_compute(unit->x, unit->y, unit->command.x, unit->command.y, unit->command.args, COMMAND_ARG_COUNT);
-
-            // Are we at the destination?
-            if (unit->x == unit->command.x && unit->y == unit->command.y)
-            {
-                unit->command.type = COMMAND_NONE;
-                unit->offset_x = 0;
-                unit->offset_y = 0;
-            }
-
-            return true;
-        }
-        else
-        {
-            if (unit->offset_x > 0) unit->offset_x--;
-            if (unit->offset_x < 0) unit->offset_x++;
-            if (unit->offset_y > 0) unit->offset_y--;
-            if (unit->offset_y < 0) unit->offset_y++;
-        }
-    }
-
-    return false;
+    return done;
 }
 
 bool step_construct(int cmd, int player_id, int unit_id, int frame)

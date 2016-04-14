@@ -9,7 +9,7 @@ void think_ai(int ai_id)
     int warior_count = 0;
 
     // Randomly move our wariors
-    for (int i = 0; i < UNIT_COUNT; ++i)
+    for (int i = 1; i < UNIT_COUNT; ++i)
     {
         Unit * unit = UNIT(i);
         if (unit->owner == ai->player && unit->type == UNIT_TYPE_WARIOR)
@@ -22,7 +22,7 @@ void think_ai(int ai_id)
                 int x = RANDOM() % MAP_WIDTH;
                 int y = RANDOM() % MAP_HEIGHT;
 
-                issue_command(ai->player, i, command_move_to(unit, x, y));
+                command_move_to(ai->player, i, x, y);
             }
         }
     }
@@ -35,7 +35,7 @@ void think_ai(int ai_id)
         //issue_command()
         Vec pos;
         if (find_empty(flag->x, flag->y, &pos))
-            issue_command(ai->player, player->flag, command_construct(pos.x, pos.y, UNIT_TYPE_WARIOR));
+            command_construct(ai->player, player->flag, pos.x, pos.y, UNIT_TYPE_WARIOR);
     }
 
 }

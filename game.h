@@ -13,6 +13,7 @@
 #define UNIT_COUNT          (2048)
 #define COMMAND_COUNT       (256)
 #define COMMAND_ARG_COUNT   (16)
+#define PATH_LENGTH         (8)
 
 #define NO_SPRITE (-1)
 #define SPRITE(x, y) (((y) << 16) | (x))
@@ -95,8 +96,15 @@ typedef struct Unit {
     int sprite;
     int x;
     int y;
+
     int offset_x;
     int offset_y;
+
+    bool moving;
+    int move_target_x;
+    int move_target_y;
+    int move_path[PATH_LENGTH];
+
     int next_free;
 
     Command command;
@@ -170,14 +178,13 @@ typedef struct {
 extern Game GAME;
 extern Res RES;
 
+bool unit_move_to(bool start, int unit_id, int frame);
 
-Command command_move_to(Unit * unit, int x, int y);
-Command command_construct(int x, int y, int type);
+void command_move_to(int player_id, int unit_id, int x, int y);
+void command_construct(int player_id, int unit_id, int x, int y, int type);
 
 bool step_move_to(int cmd, int player, int unit, int frame);
 bool step_construct(int cmd, int player, int unit, int frame);
-
-void issue_command(int player_id, int unit_id, Command command);
 
 bool is_passable(int x, int y);
 bool in_view_of_local_player(int x, int y);

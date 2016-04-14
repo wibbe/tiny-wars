@@ -87,15 +87,6 @@ static void free_unit(int id)
     CELL(unit->x, unit->y)->unit = NO_UNIT;
 }
 
-void issue_command(int player_id, int unit_id, Command command)
-{
-    log_info("Command (type = %d, x = %d, y = %d) issued on %d by player %d\n", command.type, command.x, command.y, unit_id, player_id);
-    Unit * unit = UNIT(unit_id);
-    unit->command = command;
-    unit->offset_x = 0;
-    unit->offset_y = 0;
-}
-
 static bool has_unit_type(int x, int y, int type)
 {
     if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT)
@@ -158,6 +149,105 @@ static bool move_unit(int unit_id, int x, int y)
 
         reveal_fog_of_war(unit->owner, x, y);
         return true;
+    }
+
+    return false;
+}
+
+static bool unit_move_to_next(int unit_id)
+{
+    Unit * unit = UNIT(unit_id);
+
+    // Stop if we are already there
+    if (unit->x == unit->move_target_x && unit->y == unit->move_target_y)
+    {
+        unit->moving = false;
+        return true;
+    }
+
+    if (!astar_compute(unit->x, unit->y, unit->move_target_x, unit->move_target_y, unit->move_path, PATH_LENGTH))
+    {
+        // No solution found
+        return true;
+    }
+
+    int next_x = unit->move_path[0] % MAP_WIDTH;
+    int next_y = unit->move_path[0] / MAP_WIDTH;
+
+    // Initialize movement
+    int diff_x = next_x - unit->x;
+    int diff_y = next_y - unit->y;
+
+    if (move_unit(unit_id, next_x, next_y))
+    {
+        unit->offset_x = (diff_x > 0 ? -TILE_SIZE : (diff_x < 0 ? TILE_SIZE : 0));
+        unit->offset_y = (diff_y > 0 ? -TILE_SIZE : (diff_y < 0 ? TILE_SIZE : 0));
+    }
+
+    return false;
+}
+
+bool unit_move_to(bool start, int unit_id, int frame)
+{
+    Unit * unit = UNIT(unit_id);
+
+    if (start)
+    {
+        // Just finish directly if we could not find a path forward
+        if (!astar_compute(unit->x, unit->y, unit->move_target_x, unit->move_target_y, unit->move_path, PATH_LENGTH))
+            return true;
+
+        bool unit_in_view = in_view_of_local_player(unit->x, unit->y);
+        bool first_target_in_view = unit->move_path[0] == -1 ? false : in_view_of_local_player(unit->move_path[0] % MAP_WIDTH, unit->move_path[0] / MAP_WIDTH);
+        bool second_target_in_view = unit->move_path[1] == -1 ? false : in_view_of_local_player(unit->move_path[1] % MAP_WIDTH, unit->move_path[1] / MAP_WIDTH);
+
+        // If anything is in view, we need to continue on to the animation stage
+        if (unit_in_view || first_target_in_view || second_target_in_view)
+            return false;
+
+        // Otherwise we just move the player to the correct cells. We need to do both of the moves, so we unveil the fog-of-war correctly
+        if (unit->move_path[0] != -1)
+            move_unit(unit_id, unit->move_path[0] % MAP_WIDTH, unit->move_path[0] / MAP_WIDTH);
+        if (unit->move_path[1] != -1)
+            move_unit(unit_id, unit->move_path[1] % MAP_WIDTH, unit->move_path[1] / MAP_WIDTH);
+
+        // Are we done with the move command?
+        if (unit->x == unit->move_target_x && unit->y == unit->move_target_y)
+            unit->moving = false;
+        else
+            astar_compute(unit->x, unit->y, unit->move_target_x, unit->move_target_y, unit->move_path, PATH_LENGTH);
+
+        return true;
+    }
+    else
+    {
+        // Animate the player
+        if (frame == 0 || frame == (PLAYBACK_FRAME_COUNT / 2))
+        {
+            if (unit_move_to_next(unit_id))
+                return true;
+        }
+        else if (frame == PLAYBACK_FRAME_COUNT)
+        {
+            astar_compute(unit->x, unit->y, unit->move_target_x, unit->move_target_y, unit->move_path, PATH_LENGTH);
+
+            // Are we at the destination?
+            if (unit->x == unit->move_target_x && unit->y == unit->move_target_y)
+            {
+                unit->moving = false;
+                unit->offset_x = 0;
+                unit->offset_y = 0;
+            }
+
+            return true;
+        }
+        else
+        {
+            if (unit->offset_x > 0) unit->offset_x--;
+            if (unit->offset_x < 0) unit->offset_x++;
+            if (unit->offset_y > 0) unit->offset_y--;
+            if (unit->offset_y < 0) unit->offset_y++;
+        }
     }
 
     return false;
@@ -272,6 +362,7 @@ void init_game()
     { // Null unit
         NULL_UNIT->type = UNIT_TYPE_NONE;
         NULL_UNIT->owner = NO_PLAYER;
+        NULL_UNIT->moving = false;
     }
 
     for (int i = 1; i < UNIT_COUNT; ++i)
@@ -279,6 +370,7 @@ void init_game()
         Unit * unit = UNIT(i);
         unit->type = UNIT_TYPE_NONE;
         unit->owner = NO_PLAYER;
+        unit->moving = false;
         unit->next_free = i < UNIT_COUNT - 1 ? i + 1 : NO_UNIT;
     }
 
@@ -467,10 +559,10 @@ void draw_move_to(Unit * unit, int id, bool selected)
 {
     if (selected)
     {
-        for (int i = 0; i < COMMAND_ARG_COUNT; ++i)
+        for (int i = 0; i < PATH_LENGTH; ++i)
         {
 
-            int idx = unit->command.args[i];
+            int idx = unit->move_path[i];
             if (idx == -1)
                 continue;
 
@@ -481,15 +573,17 @@ void draw_move_to(Unit * unit, int id, bool selected)
         }
     }
 
-    draw_sprite(unit->command.x, unit->command.y, 0, 0, SPRITE_MOVE_GOAL_MARKER);
+    draw_sprite(unit->move_target_x, unit->move_target_y, 0, 0, SPRITE_MOVE_GOAL_MARKER);
 }
 
 void draw_selected_unit(Unit * unit, int id)
 {
+    if (unit->moving)
+        draw_move_to(unit, id, true);
+
     switch (unit->command.type)
     {
         case COMMAND_MOVE_TO:
-            draw_move_to(unit, id, true);
             break;
     }
 }
@@ -498,16 +592,15 @@ void draw_unit(Unit * unit, int id)
 {
     draw_sprite(unit->x, unit->y, unit->offset_x, unit->offset_y, unit->sprite);
 
+    if (unit->moving)
+        draw_move_to(unit, id, false);
+
     if (unit->owner == GAME.view_player)
     {
         switch (unit->command.type)
         {
             case COMMAND_CONSTRUCT:
                 draw_construct(unit, id);
-                break;
-
-            case COMMAND_MOVE_TO:
-                draw_move_to(unit, id, false);
                 break;
         }
     }
@@ -659,8 +752,8 @@ static void player_done()
 
 static void issue_move_command(int x, int y)
 {
-    if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR && is_passable(x, y) && astar_compute(SELECTED_UNIT->x, SELECTED_UNIT->y, x, y, NULL, 0))
-        issue_command(GAME.local_player, GAME.selected_unit, command_move_to(SELECTED_UNIT, x, y));
+    if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR)
+        command_move_to(GAME.local_player, GAME.selected_unit, x, y);
 }
 
 static void step_player_minimap(int x, int y)
@@ -737,14 +830,11 @@ static void step_player()
 
     if (key_pressed(KEY_B) && SELECTED_UNIT->type == UNIT_TYPE_PLAYER)
     {
-        for (int i = 0; i < 8; ++i)
-        {
-            if (is_passable(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y))
-            {
-                issue_command(GAME.local_player, LOCAL_PLAYER->flag, command_construct(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y, UNIT_TYPE_WARIOR));
-                break;
-            }
-        }
+        Unit * flag = UNIT(LOCAL_PLAYER->flag);
+
+        Vec pos;
+        if (find_empty(flag->x, flag->y, &pos))
+            command_construct(GAME.local_player, LOCAL_PLAYER->flag, pos.x, pos.y, UNIT_TYPE_WARIOR);
     }
 
     if (key_pressed(KEY_SPACE))
@@ -806,7 +896,7 @@ static void step_issue_commands()
         GAME.stage = STAGE_COMMAND_PLAYBACK;
         GAME.playback_frame = 0;
         GAME.playback_player = GAME.stage_initiative_player;
-        GAME.playback_unit = 0;
+        GAME.playback_unit = 1;
         GAME.playback_unit_cmd = PLAYBACK_START;
         GAME.playback_player_done = 0;
 
@@ -818,7 +908,7 @@ static void step_next_player()
 {
     GAME.playback_player_done++;
     GAME.playback_player = (GAME.playback_player + 1) % GAME.player_count;
-    GAME.playback_unit = 0;
+    GAME.playback_unit = 1;
     GAME.playback_unit_cmd = PLAYBACK_START;
     GAME.playback_frame = 0;
 
