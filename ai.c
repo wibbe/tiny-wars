@@ -12,7 +12,7 @@ void think_ai(int ai_id)
     for (int i = 1; i < UNIT_COUNT; ++i)
     {
         Unit * unit = UNIT(i);
-        if (unit->owner == ai->player && unit->type == UNIT_TYPE_WARIOR)
+        if (unit->owner == ai->player && unit->type == UNIT_TYPE_WARIOR && unit->is_ready)
         {
             warior_count++;
 

@@ -307,7 +307,7 @@ static int nextNodeInSolution(AStar * astar, int * target, int node)
 
 // a bit more complex than the usual A* solution-recording method,
 // due to the need to interpolate path chunks
-static void record_solution(AStar * astar, int * path, int path_length)
+static int record_solution(AStar * astar, int * path, int path_length)
 {
 	int target = astar->goal;
 	int i = astar->goal;
@@ -315,9 +315,12 @@ static void record_solution(AStar * astar, int * path, int path_length)
     if (path != NULL)
         path[0] = i;
 
+    int steps = 0;
+
 	for (;;)
     {
 		i = nextNodeInSolution(astar, &target, i);
+        steps++;
 
 		if (i == astar->start)
         {
@@ -331,6 +334,7 @@ static void record_solution(AStar * astar, int * path, int path_length)
             path[0] = i;
         }
 	}
+    return steps;
 }
 
 
@@ -441,7 +445,7 @@ int astar_compute(int start_x, int start_y, int end_x, int end_y, int * path, in
 
 	AStar astar;
 	if (!init_astar_object(&astar, start, end))
-		return false;
+		return 0;
 
 	coord_t endCoord = getCoord(end);
 
@@ -455,11 +459,11 @@ int astar_compute(int start_x, int start_y, int end_x, int end_y, int * path, in
 			free(astar.closed);
 			free(astar.gScores);
 
-			record_solution(&astar, path, path_length);
+			int steps = record_solution(&astar, path, path_length);
 
 			free(astar.cameFrom);
 
-			return true;
+			return steps;
 		}
 
 		deleteMin(astar.open);
@@ -491,5 +495,5 @@ int astar_compute(int start_x, int start_y, int end_x, int end_y, int * path, in
 	free(astar.gScores);
 	free(astar.cameFrom);
 
-	return false;
+	return 0;
 }

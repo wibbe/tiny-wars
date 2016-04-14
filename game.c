@@ -31,11 +31,26 @@ static const char * COMMAND_NAMES[] = {
     "MoveTo",
 };
 
+static const int MAX_HITPOINTS[] = {
+    [UNIT_TYPE_PLAYER] = 16,
+    [UNIT_TYPE_WARIOR] = 4,
+    [UNIT_TYPE_WALL] = 8,
+};
+
 Res RES = {0};
 Game GAME = {0};
 
 
-static int alloc_unit(int x, int y, int type, int owner)
+// ##     ## ##    ## #### ########
+// ##     ## ###   ##  ##     ##
+// ##     ## ####  ##  ##     ##
+// ##     ## ## ## ##  ##     ##
+// ##     ## ##  ####  ##     ##
+// ##     ## ##   ###  ##     ##
+//  #######  ##    ## ####    ##
+
+
+static int alloc_unit(int x, int y, int type, int owner, int hit_points)
 {
     if (GAME.first_free_unit == NO_UNIT)
         return NO_UNIT;
@@ -48,11 +63,16 @@ static int alloc_unit(int x, int y, int type, int owner)
 
     GAME.first_free_unit = unit->next_free;
 
+    memset(unit, 0, sizeof(Unit));
+
     unit->type = type;
     unit->owner = owner;
     unit->x = x;
     unit->y = y;
+    unit->is_ready = false;
+    unit->hit_points = hit_points;
     unit->next_free = NO_UNIT;
+    unit->moving = false;
 
     switch (type)
     {
@@ -93,11 +113,6 @@ static bool has_unit_type(int x, int y, int type)
         return false;
 
     return UNIT_POS(x, y)->type == type;
-}
-
-static bool has_wall(int x, int y)
-{
-    return has_unit_type(x, y, UNIT_TYPE_WALL);
 }
 
 bool is_passable(int x, int y)
@@ -253,6 +268,21 @@ bool unit_move_to(bool start, int unit_id, int frame)
     return false;
 }
 
+
+// ##      ##    ###    ##       ##
+// ##  ##  ##   ## ##   ##       ##
+// ##  ##  ##  ##   ##  ##       ##
+// ##  ##  ## ##     ## ##       ##
+// ##  ##  ## ######### ##       ##
+// ##  ##  ## ##     ## ##       ##
+//  ###  ###  ##     ## ######## ########
+
+
+static bool has_wall(int x, int y)
+{
+    return has_unit_type(x, y, UNIT_TYPE_WALL);
+}
+
 static int get_wall_count(int x, int y)
 {
     int count = 0;
@@ -267,35 +297,24 @@ static int get_wall_count(int x, int y)
 
 static void update_wall_sprites(int x, int y)
 {
-    if (has_wall(x, y))
-        UNIT_POS(x, y)->sprite = SPRITE_WALL(get_wall_count(x, y));
+    #define UPDATE_WALL(x, y) if (has_wall((x), (y))) UNIT_POS((x), (y))->sprite = SPRITE_WALL(get_wall_count((x), (y)));
+
+    UPDATE_WALL(x, y);
+    UPDATE_WALL(x + 1, y);
+    UPDATE_WALL(x - 1, y);
+    UPDATE_WALL(x, y + 1);
+    UPDATE_WALL(x, y - 1);
 }
 
-static void build_wall(int x, int y)
-{
-    int wall = alloc_unit(x, y, UNIT_TYPE_WALL, -1);
-    if (wall == NO_UNIT)
-        return;
 
-    update_wall_sprites(x, y);
-    update_wall_sprites(x + 1, y);
-    update_wall_sprites(x - 1, y);
-    update_wall_sprites(x, y + 1);
-    update_wall_sprites(x, y - 1);
-}
+// ########  #######   ######       #######  ########    ##      ##    ###    ########
+// ##       ##     ## ##    ##     ##     ## ##          ##  ##  ##   ## ##   ##     ##
+// ##       ##     ## ##           ##     ## ##          ##  ##  ##  ##   ##  ##     ##
+// ######   ##     ## ##   ####    ##     ## ######      ##  ##  ## ##     ## ########
+// ##       ##     ## ##    ##     ##     ## ##          ##  ##  ## ######### ##   ##
+// ##       ##     ## ##    ##     ##     ## ##          ##  ##  ## ##     ## ##    ##
+// ##        #######   ######       #######  ##           ###  ###  ##     ## ##     ##
 
-static void demolish_wall(int x, int y)
-{
-    if (!has_wall(x, y))
-        return;
-
-    free_unit(CELL(x, y)->unit);
-
-    update_wall_sprites(x + 1, y);
-    update_wall_sprites(x - 1, y);
-    update_wall_sprites(x, y + 1);
-    update_wall_sprites(x, y - 1);
-}
 
 static int get_fog_of_war_sprite(bool * fog_of_war, int x, int y)
 {
@@ -370,6 +389,8 @@ void init_game()
         Unit * unit = UNIT(i);
         unit->type = UNIT_TYPE_NONE;
         unit->owner = NO_PLAYER;
+        unit->is_ready = false;
+        unit->hit_points = 0;
         unit->moving = false;
         unit->next_free = i < UNIT_COUNT - 1 ? i + 1 : NO_UNIT;
     }
@@ -436,7 +457,7 @@ bool new_game(const char * map_name, int human_players, int ai_players)
             switch (row[x])
             {
                 case 'x':   // wall
-                    alloc_unit(x, y, UNIT_TYPE_WALL, -1);
+                    UNIT(alloc_unit(x, y, UNIT_TYPE_WALL, -1, MAX_HITPOINTS[UNIT_TYPE_WALL]))->is_ready = true;
 
                 case '.':   // grass
                     CELL(x, y)->sprite = SPRITE_GRASS_1;
@@ -449,7 +470,8 @@ bool new_game(const char * map_name, int human_players, int ai_players)
                     {
                         int player = row[x] - '1';
                         CELL(x, y)->sprite = SPRITE_GRASS_1;
-                        PLAYER(player)->flag = alloc_unit(x, y, UNIT_TYPE_PLAYER, player);
+                        PLAYER(player)->flag = alloc_unit(x, y, UNIT_TYPE_PLAYER, player, MAX_HITPOINTS[UNIT_TYPE_PLAYER]);
+                        UNIT(PLAYER(player)->flag)->is_ready = true;
                         reveal_fog_of_war(player, x, y);
                     }
                     break;
@@ -470,7 +492,8 @@ bool new_game(const char * map_name, int human_players, int ai_players)
         Vec pos;
         if (find_empty(flag->x, flag->y, &pos))
         {
-            alloc_unit(pos.x, pos.y, UNIT_TYPE_WARIOR, p);
+            int unit = alloc_unit(pos.x, pos.y, UNIT_TYPE_WARIOR, p, MAX_HITPOINTS[UNIT_TYPE_WARIOR]);
+            UNIT(unit)->is_ready = true;
             reveal_fog_of_war(p, pos.x, pos.y);
         }
     }
@@ -545,14 +568,14 @@ void draw_sprite(int x, int y, int offset_x, int offset_y, int sprite)
 
 void draw_construct(Unit * unit, int id)
 {
-    //if (unit->command.progress == 0)
-    //    return;
-
     int x = (unit->x - GAME.offset_x) * TILE_SIZE;
     int y = (unit->y - GAME.offset_y) * TILE_SIZE;
 
-    rect_draw(rect_make_size(x, y + TILE_SIZE - 1, unit->command.progress, 1), COLOR_PLAYER_1 + unit->owner);
-    rect_draw(rect_make_size(x + unit->command.progress, y + TILE_SIZE - 1, 8 - unit->command.progress, 1), COLOR_LIGHT_GRAY);
+    float t = (float)unit->hit_points / MAX_HITPOINTS[unit->type];
+    int progress = (int)round(t * 8);
+
+    rect_draw(rect_make_size(x, y + TILE_SIZE - 1, progress, 1), COLOR_PLAYER_1 + unit->owner);
+    rect_draw(rect_make_size(x + progress, y + TILE_SIZE - 1, 8 - progress, 1), COLOR_LIGHT_GRAY);
 }
 
 void draw_move_to(Unit * unit, int id, bool selected)
@@ -580,29 +603,28 @@ void draw_selected_unit(Unit * unit, int id)
 {
     if (unit->moving)
         draw_move_to(unit, id, true);
-
-    switch (unit->command.type)
-    {
-        case COMMAND_MOVE_TO:
-            break;
-    }
 }
 
 void draw_unit(Unit * unit, int id)
 {
     draw_sprite(unit->x, unit->y, unit->offset_x, unit->offset_y, unit->sprite);
 
-    if (unit->moving)
-        draw_move_to(unit, id, false);
 
     if (unit->owner == GAME.view_player)
     {
+        if (unit->moving)
+            draw_move_to(unit, id, false);
+
+        if (!unit->is_ready)
+            draw_construct(unit, id);
+
+        /*
         switch (unit->command.type)
         {
             case COMMAND_CONSTRUCT:
-                draw_construct(unit, id);
                 break;
         }
+        */
     }
 }
 
@@ -700,15 +722,11 @@ void draw_game()
         }
     }
 
-    char buff[256];
-    snprintf(buff, 255, "P: %d\nI: %d\nU: %d\nS: %d\nD: %d%d%d%d",
-             GAME.view_player, GAME.stage_initiative_player, GAME.selected_unit, GAME.stage,
-             PLAYER(0)->stage_done, PLAYER(1)->stage_done, PLAYER(2)->stage_done, PLAYER(3)->stage_done);
-    text_draw(0, 10, buff, 2);
 
     if (GAME.selected_unit != NO_UNIT)
     {
-        snprintf(buff, 255, "%d X:%d Y:%d O:%d C:%s CP:%d", GAME.selected_unit, SELECTED_UNIT->x, SELECTED_UNIT->y, SELECTED_UNIT->owner, COMMAND_NAMES[SELECTED_UNIT->command.type], SELECTED_UNIT->command.progress);
+        char buff[256];
+        snprintf(buff, 255, "ID:%d X:%d Y:%d O:%d HP:%d CMD:%s", GAME.selected_unit, SELECTED_UNIT->x, SELECTED_UNIT->y, SELECTED_UNIT->owner, SELECTED_UNIT->hit_points, COMMAND_NAMES[SELECTED_UNIT->command.type]);
         text_draw(0, CANVAS_HEIGHT - 8, buff, 2);
     }
 }
@@ -750,10 +768,26 @@ static void player_done()
     GAME.selected_unit = NO_UNIT;
 }
 
-static void issue_move_command(int x, int y)
+static void issue_unit_order(int x, int y)
 {
     if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR)
-        command_move_to(GAME.local_player, GAME.selected_unit, x, y);
+    {
+        switch (GAME.selected_action)
+        {
+            case UNIT_ACTION_BUILD_WALL:
+            {
+                if (command_construct(GAME.local_player, GAME.selected_unit, x, y, UNIT_TYPE_WALL))
+                    update_wall_sprites(x, y);
+            }
+
+            case UNIT_ACTION_MOVE:
+            case UNIT_ACTION_NONE:
+                command_move_to(GAME.local_player, GAME.selected_unit, x, y);
+                break;
+        }
+
+        GAME.selected_action = UNIT_ACTION_NONE;
+    }
 }
 
 static void step_player_minimap(int x, int y)
@@ -783,7 +817,7 @@ static void step_player_minimap(int x, int y)
     if (key_pressed(KEY_RBUTTON) && GAME.selected_unit != NO_UNIT)
     {
         GAME.inside_minimap = true;
-        issue_move_command(x, y);
+        issue_unit_order(x, y);
     }
 }
 
@@ -793,7 +827,7 @@ static void step_player_world()
     if (key_pressed(KEY_RBUTTON) && GAME.selected_unit != NO_UNIT)
     {
         GAME.inside_minimap = false;
-        issue_move_command(CURSOR_POS);
+        issue_unit_order(CURSOR_POS);
     }
 }
 
@@ -811,8 +845,9 @@ static void step_player()
     if (!inside_minimap && key_pressed(KEY_LBUTTON))
     {
         GAME.inside_minimap = false;
+        GAME.selected_action = UNIT_ACTION_NONE;
 
-        if (hover_unit->owner == GAME.view_player)
+        if (hover_unit->owner == GAME.view_player && hover_unit->is_ready)
             GAME.selected_unit = hover_unit_id;
         else
             GAME.selected_unit = NO_UNIT;
@@ -832,10 +867,22 @@ static void step_player()
     {
         Unit * flag = UNIT(LOCAL_PLAYER->flag);
 
-        Vec pos;
-        if (find_empty(flag->x, flag->y, &pos))
-            command_construct(GAME.local_player, LOCAL_PLAYER->flag, pos.x, pos.y, UNIT_TYPE_WARIOR);
+        if (flag->command.type == COMMAND_CONSTRUCT)
+        {
+            stop_construct(GAME.local_player, LOCAL_PLAYER->flag);
+        }
+        else
+        {
+            Vec pos;
+            if (find_empty(flag->x, flag->y, &pos))
+                command_construct(GAME.local_player, LOCAL_PLAYER->flag, pos.x, pos.y, UNIT_TYPE_WARIOR);
+        }
     }
+
+    if (key_pressed(KEY_W))
+        GAME.selected_action = UNIT_ACTION_BUILD_WALL;
+    if (key_pressed(KEY_M))
+        GAME.selected_action = UNIT_ACTION_MOVE;
 
     if (key_pressed(KEY_SPACE))
         player_done();

@@ -11,8 +11,7 @@
 #define VIEW_HEIGHT (CANVAS_HEIGHT / TILE_SIZE)
 
 #define UNIT_COUNT          (2048)
-#define COMMAND_COUNT       (256)
-#define COMMAND_ARG_COUNT   (16)
+#define COMMAND_ARG_COUNT   (4)
 #define PATH_LENGTH         (8)
 
 #define NO_SPRITE (-1)
@@ -70,6 +69,12 @@ enum UnitType {
     UNIT_TYPE_WARIOR,
 };
 
+enum UnitAction {
+    UNIT_ACTION_NONE = 0,
+    UNIT_ACTION_MOVE,
+    UNIT_ACTION_BUILD_WALL,
+};
+
 enum CommandType {
     COMMAND_NONE = 0,
     COMMAND_CONSTRUCT,
@@ -99,6 +104,9 @@ typedef struct Unit {
 
     int offset_x;
     int offset_y;
+
+    bool is_ready;
+    int hit_points;
 
     bool moving;
     int move_target_x;
@@ -158,6 +166,7 @@ typedef struct {
     int playback_frame;
 
     int selected_unit;
+    int selected_action;
 
     int offset_x;
     int offset_y;
@@ -181,7 +190,9 @@ extern Res RES;
 bool unit_move_to(bool start, int unit_id, int frame);
 
 void command_move_to(int player_id, int unit_id, int x, int y);
-void command_construct(int player_id, int unit_id, int x, int y, int type);
+bool command_construct(int player_id, int unit_id, int x, int y, int type);
+
+void stop_construct(int player_id, int unit_id);
 
 bool step_move_to(int cmd, int player, int unit, int frame);
 bool step_construct(int cmd, int player, int unit, int frame);
