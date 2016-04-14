@@ -49,6 +49,7 @@ enum Colors {
     COLOR_WHITE,
     COLOR_LIGHT_GRAY,
     COLOR_DARK_GRAY,
+    COLOR_GREEN,
     COLOR_PLAYER_1,
     COLOR_PLAYER_2,
     COLOR_PLAYER_3,
@@ -155,6 +156,10 @@ typedef struct {
 
     int cursor_x;
     int cursor_y;
+
+    bool inside_minimap;
+    int minimap_x;
+    int minimap_y;
 } Game;
 
 typedef struct {

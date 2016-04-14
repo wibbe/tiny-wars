@@ -407,6 +407,7 @@ fail:
     return false;
 }
 
+
 // ########  ########     ###    ##      ## #### ##    ##  ######
 // ##     ## ##     ##   ## ##   ##  ##  ##  ##  ###   ## ##    ##
 // ##     ## ##     ##  ##   ##  ##  ##  ##  ##  ####  ## ##
@@ -414,6 +415,17 @@ fail:
 // ##     ## ##   ##   ######### ##  ##  ##  ##  ##  #### ##    ##
 // ##     ## ##    ##  ##     ## ##  ##  ##  ##  ##   ### ##    ##
 // ########  ##     ## ##     ##  ###  ###  #### ##    ##  ######
+
+void focus_view_on(int x, int y)
+{
+    GAME.offset_x = x - (VIEW_WIDTH / 2);
+    GAME.offset_y = y - (VIEW_HEIGHT / 2);
+}
+
+bool in_view(int x, int y)
+{
+    return x > GAME.offset_x && x < (GAME.offset_x + VIEW_WIDTH) && y > GAME.offset_y && y < (GAME.offset_y + VIEW_HEIGHT);
+}
 
 void draw_sprite(int x, int y, int offset_x, int offset_y, int sprite)
 {
@@ -503,6 +515,10 @@ void draw_unit(Unit * unit, int id)
 
 void draw_game()
 {
+    // Start by making sure the offset is within the map
+    GAME.offset_x = clamp(GAME.offset_x, 0, MAP_WIDTH - VIEW_WIDTH);
+    GAME.offset_y = clamp(GAME.offset_y, 0, MAP_HEIGHT - VIEW_HEIGHT);
+
     // Draw map
     for (int y = 0; y < VIEW_HEIGHT; ++y)
         for (int x = 0; x < VIEW_WIDTH; ++x)
@@ -548,6 +564,49 @@ void draw_game()
             }
         }
 
+    // Draw mini map
+    for (int y = 0; y < MAP_HEIGHT; ++y)
+    {
+        for (int x = 0; x < MAP_WIDTH; ++x)
+        {
+            int px = CANVAS_WIDTH - MAP_WIDTH + x;
+            int py = CANVAS_HEIGHT - MAP_HEIGHT + y;
+
+            int map_idx = y * MAP_WIDTH + x;
+            int canvas_idx = py * CANVAS_WIDTH + px;
+
+            u8 color = COLOR_BLACK;
+
+            if (((x == GAME.offset_x || x == (GAME.offset_x + VIEW_WIDTH - 1)) && y >= GAME.offset_y && y < (GAME.offset_y + VIEW_HEIGHT)) ||
+                ((y == GAME.offset_y || y == (GAME.offset_y + VIEW_HEIGHT - 1)) && x >= GAME.offset_x && x < (GAME.offset_x + VIEW_WIDTH)))
+            {
+                color = COLOR_WHITE;
+            }
+            else if (!fog_of_war[map_idx])
+            {
+                color = COLOR_GREEN;
+
+                if (HAS_UNIT(x, y))
+                {
+                    Unit * unit = UNIT_POS(x, y);
+                    switch (unit->type)
+                    {
+                        case UNIT_TYPE_WALL:
+                            color = COLOR_LIGHT_GRAY;
+                            break;
+
+                        case UNIT_TYPE_WARIOR:
+                        case UNIT_TYPE_PLAYER:
+                            color = COLOR_PLAYER_1 + unit->owner;
+                            break;
+                    }
+                }
+            }
+
+            CORE->canvas->pixels[canvas_idx] = color;
+        }
+    }
+
     char buff[256];
     snprintf(buff, 255, "P: %d\nI: %d\nU: %d\nS: %d\nD: %d%d%d%d",
              GAME.view_player, GAME.stage_initiative_player, GAME.selected_unit, GAME.stage,
@@ -560,6 +619,16 @@ void draw_game()
         text_draw(0, CANVAS_HEIGHT - 8, buff, 2);
     }
 }
+
+
+//  ######      ###    ##     ## ########    ##        #######   #######  ########
+// ##    ##    ## ##   ###   ### ##          ##       ##     ## ##     ## ##     ##
+// ##         ##   ##  #### #### ##          ##       ##     ## ##     ## ##     ##
+// ##   #### ##     ## ## ### ## ######      ##       ##     ## ##     ## ########
+// ##    ##  ######### ##     ## ##          ##       ##     ## ##     ## ##
+// ##    ##  ##     ## ##     ## ##          ##       ##     ## ##     ## ##
+//  ######   ##     ## ##     ## ########    ########  #######   #######  ##
+
 
 static void step_cursor()
 {
@@ -586,8 +655,53 @@ static void player_done()
 {
     LOCAL_PLAYER->stage_done = true;
     GAME.selected_unit = NO_UNIT;
+}
 
-    //GAME.current_player = (GAME.current_player + 1) % GAME.player_count;
+static void issue_move_command(int x, int y)
+{
+    if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR && is_passable(x, y) && astar_compute(SELECTED_UNIT->x, SELECTED_UNIT->y, x, y, NULL, 0))
+        issue_command(GAME.local_player, GAME.selected_unit, command_move_to(SELECTED_UNIT, x, y));
+}
+
+static void step_player_minimap(int x, int y)
+{
+    if (key_down(KEY_LBUTTON))
+    {
+        if (key_pressed(KEY_LBUTTON))
+        {
+            GAME.inside_minimap = true;
+            GAME.minimap_x = x;
+            GAME.minimap_y = y;
+
+            if (x < GAME.offset_x || x > (GAME.offset_x + VIEW_WIDTH) ||
+                y < GAME.offset_y || y > (GAME.offset_y + VIEW_HEIGHT))
+                focus_view_on(x, y);
+        }
+
+        if (GAME.inside_minimap)
+        {
+            GAME.offset_x += x - GAME.minimap_x;
+            GAME.offset_y += y - GAME.minimap_y;
+            GAME.minimap_x = x;
+            GAME.minimap_y = y;
+        }
+    }
+
+    if (key_pressed(KEY_RBUTTON) && GAME.selected_unit != NO_UNIT)
+    {
+        GAME.inside_minimap = true;
+        issue_move_command(x, y);
+    }
+}
+
+static void step_player_world()
+{
+    // Issue commands to units
+    if (key_pressed(KEY_RBUTTON) && GAME.selected_unit != NO_UNIT)
+    {
+        GAME.inside_minimap = false;
+        issue_move_command(CURSOR_POS);
+    }
 }
 
 static void step_player()
@@ -598,8 +712,13 @@ static void step_player()
     int hover_unit_id = CELL(GAME.cursor_x, GAME.cursor_y)->unit;
     Unit * hover_unit = UNIT(hover_unit_id);
 
-    if (key_pressed(KEY_LBUTTON))
+    bool inside_minimap = CORE->mouse_x >= (CANVAS_WIDTH - MAP_WIDTH) && CORE->mouse_y >= (CANVAS_HEIGHT - MAP_HEIGHT);
+
+    // Select units if we are autside of the minimap
+    if (!inside_minimap && key_pressed(KEY_LBUTTON))
     {
+        GAME.inside_minimap = false;
+
         if (hover_unit->owner == GAME.view_player)
             GAME.selected_unit = hover_unit_id;
         else
@@ -607,24 +726,23 @@ static void step_player()
     }
 
     // Only the local player can issue commands
-    if (GAME.view_player == GAME.view_player)
-    {
-        // Issue commands to units
-        if (key_pressed(KEY_RBUTTON) && GAME.selected_unit != NO_UNIT)
-        {
-            if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR && is_passable(CURSOR_POS) && astar_compute(SELECTED_UNIT->x, SELECTED_UNIT->y, CURSOR_POS, NULL, 0))
-                issue_command(GAME.local_player, GAME.selected_unit, command_move_to(SELECTED_UNIT, CURSOR_POS));
-        }
+    if (GAME.view_player != GAME.local_player)
+        return;
 
-        if (key_pressed(KEY_B) && SELECTED_UNIT->type == UNIT_TYPE_PLAYER)
+    // Issue command in the real world or from the minimap
+    if (inside_minimap)
+        step_player_minimap(CORE->mouse_x - (CANVAS_WIDTH - MAP_WIDTH), CORE->mouse_y - (CANVAS_HEIGHT - MAP_HEIGHT));
+    else
+        step_player_world();
+
+    if (key_pressed(KEY_B) && SELECTED_UNIT->type == UNIT_TYPE_PLAYER)
+    {
+        for (int i = 0; i < 8; ++i)
         {
-            for (int i = 0; i < 8; ++i)
+            if (is_passable(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y))
             {
-                if (is_passable(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y))
-                {
-                    issue_command(GAME.local_player, LOCAL_PLAYER->flag, command_construct(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y, UNIT_TYPE_WARIOR));
-                    break;
-                }
+                issue_command(GAME.local_player, LOCAL_PLAYER->flag, command_construct(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y, UNIT_TYPE_WARIOR));
+                break;
             }
         }
     }
@@ -764,9 +882,17 @@ static void step_commands()
             switch (GAME.playback_unit_cmd)
             {
                 case PLAYBACK_START:
-                    //log_info("Animate unit %d\n", GAME.playback_unit);
-                    GAME.playback_unit_cmd = PLAYBACK_ANIMATE;
-                    GAME.playback_frame = 0;
+                    {
+                        //log_info("Animate unit %d\n", GAME.playback_unit);
+                        Unit * unit = UNIT(GAME.playback_unit);
+
+                        // Move view if unit is not in it
+                        if (!in_view(unit->x, unit->y) && unit->owner == GAME.view_player)
+                            focus_view_on(unit->x, unit->y);
+
+                        GAME.playback_unit_cmd = PLAYBACK_ANIMATE;
+                        GAME.playback_frame = 0;
+                    }
                     break;
 
                 case PLAYBACK_ANIMATE:

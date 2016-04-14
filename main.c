@@ -15,6 +15,7 @@ void init()
     CORE->palette.colors[COLOR_WHITE] = color_make(0xff, 0xff, 0xff, 0xff);
     CORE->palette.colors[COLOR_LIGHT_GRAY] = color_make(0xdb, 0xdb, 0xdb, 0xff);
     CORE->palette.colors[COLOR_DARK_GRAY] = color_make(0xcc, 0xcc, 0xcc, 0xff);
+    CORE->palette.colors[COLOR_GREEN] = color_make(0x8d, 0xc4, 0x35, 0xff);
 
     // Player colors
     CORE->palette.colors[COLOR_PLAYER_1] = color_make(0xff, 0x6a, 0x00, 0xff);
