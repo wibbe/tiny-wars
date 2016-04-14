@@ -42,7 +42,7 @@ bool command_construct(int player_id, int unit_id, int x, int y, int type)
     {
         // Find a suitable build position around the site
         int best_idx = -1;
-        int best_length = 10000;
+        int best_length = MAP_WIDTH * MAP_HEIGHT;
 
         for (int i = 0; i < 8; ++i)
         {
@@ -60,7 +60,7 @@ bool command_construct(int player_id, int unit_id, int x, int y, int type)
         if (best_idx != -1)
         {
             astar_compute(unit->x, unit->y, x + OFFSET[best_idx].x, y + OFFSET[best_idx].y, unit->move_path, PATH_LENGTH);
-            
+
             unit->moving = true;
             unit->move_target_x = x + OFFSET[best_idx].x;
             unit->move_target_y = y + OFFSET[best_idx].y;
@@ -80,7 +80,7 @@ bool command_construct(int player_id, int unit_id, int x, int y, int type)
     return true;
 }
 
-void stop_construct(int player_id, int unit_id)
+void stop_construct(int unit_id)
 {
     Unit * unit = UNIT(unit_id);
 

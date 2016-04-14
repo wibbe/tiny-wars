@@ -192,7 +192,7 @@ bool unit_move_to(bool start, int unit_id, int frame);
 void command_move_to(int player_id, int unit_id, int x, int y);
 bool command_construct(int player_id, int unit_id, int x, int y, int type);
 
-void stop_construct(int player_id, int unit_id);
+void stop_construct(int unit_id);
 
 bool step_move_to(int cmd, int player, int unit, int frame);
 bool step_construct(int cmd, int player, int unit, int frame);

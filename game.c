@@ -2,17 +2,17 @@
 #include "game.h"
 
 static const int SPRITE_GRASS_1             = SPRITE(0, 0);
-static const int SPRITE_GRASS_2             = SPRITE(1, 0);
 static const int SPRITE_SELECTION           = SPRITE(0, 1);
-static const int SPRITE_MOVE_GOAL_MARKER    = SPRITE(1, 1);
-static const int SPRITE_MOVE_MARKER         = SPRITE(2, 1);
-static const int SPRITE_MOVE_MARKER_INVALID = SPRITE(3, 1);
+static const int SPRITE_BUILD_SELECTION     = SPRITE(1, 1);
+static const int SPRITE_MOVE_GOAL_MARKER    = SPRITE(2, 1);
+static const int SPRITE_MOVE_MARKER         = SPRITE(3, 1);
+static const int SPRITE_MOVE_MARKER_INVALID = SPRITE(4, 1);
 
 #define SPRITE_FLAG(player)     SPRITE(player, 7)
 #define SPRITE_WARIOR(player)   SPRITE(player, 5)
 #define SPRITE_WALL(dir)        SPRITE(dir, 3)
 #define SPRITE_FOG_OF_WAR(dir)  SPRITE(dir, 4)
-
+#define SPRITE_HATCH(progress)  SPRITE(progress, 2)
 
 static const Vec OFFSET[8] = {
     {0, 1},
@@ -574,8 +574,9 @@ void draw_construct(Unit * unit, int id)
     float t = (float)unit->hit_points / MAX_HITPOINTS[unit->type];
     int progress = (int)round(t * 8);
 
+    draw_sprite(unit->x, unit->y, unit->offset_x, unit->offset_y, SPRITE_HATCH(progress));
     rect_draw(rect_make_size(x, y + TILE_SIZE - 1, progress, 1), COLOR_PLAYER_1 + unit->owner);
-    rect_draw(rect_make_size(x + progress, y + TILE_SIZE - 1, 8 - progress, 1), COLOR_LIGHT_GRAY);
+    //rect_draw(rect_make_size(x + 2 + progress, y + TILE_SIZE - 4, 4 - progress, 2), COLOR_LIGHT_GRAY);
 }
 
 void draw_move_to(Unit * unit, int id, bool selected)
@@ -609,10 +610,9 @@ void draw_unit(Unit * unit, int id)
 {
     draw_sprite(unit->x, unit->y, unit->offset_x, unit->offset_y, unit->sprite);
 
-
     if (unit->owner == GAME.view_player)
     {
-        if (unit->moving)
+        if (unit->moving && unit->command.type == COMMAND_MOVE_TO)
             draw_move_to(unit, id, false);
 
         if (!unit->is_ready)
@@ -655,7 +655,11 @@ void draw_game()
         Unit * unit = UNIT(GAME.selected_unit);
 
         draw_selected_unit(unit, GAME.selected_unit);
+
         draw_sprite(unit->x, unit->y, 0, 0, SPRITE_SELECTION);
+
+        if (GAME.selected_action == UNIT_ACTION_BUILD_WALL && is_passable(CURSOR_POS))
+            draw_sprite(CURSOR_POS, 0, 0, SPRITE_BUILD_SELECTION);
     }
 
     // Draw fog-of-war
@@ -772,6 +776,9 @@ static void issue_unit_order(int x, int y)
 {
     if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR)
     {
+        if (SELECTED_UNIT->command.type == COMMAND_CONSTRUCT)
+            stop_construct(GAME.selected_unit);
+
         switch (GAME.selected_action)
         {
             case UNIT_ACTION_BUILD_WALL:
@@ -869,7 +876,7 @@ static void step_player()
 
         if (flag->command.type == COMMAND_CONSTRUCT)
         {
-            stop_construct(GAME.local_player, LOCAL_PLAYER->flag);
+            stop_construct(LOCAL_PLAYER->flag);
         }
         else
         {
