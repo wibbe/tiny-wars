@@ -301,6 +301,61 @@ extern inline Vec vec_make(int x, int y)
     return v;
 }
 
+void random_init(Random * r, u64 seed)
+{
+    r->iset = 0;
+    r->mt[0] = seed;
+	for (r->mti = 1; r->mti < RAND_NN; ++r->mti)
+		r->mt[r->mti] = 6364136223846793005ULL * (r->mt[r->mti - 1] ^ (r->mt[r->mti - 1] >> 62)) + r->mti;
+}
+
+
+//   64-bit Mersenne Twister pseudorandom number generator. Adapted from:
+//     http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/VERSIONS/C-LANG/mt19937-64.c
+//   which was written by Takuji Nishimura and Makoto Matsumoto and released
+//   under the 3-clause BSD license.
+
+#define RAND_MM 156
+#define RAND_UM 0xFFFFFFFF80000000ULL /* Most significant 33 bits */
+#define RAND_LM 0x7FFFFFFFULL /* Least significant 31 bits */
+
+u64 random(Random * r)
+{
+    u64 x;
+	static const u64 mag01[2] = { 0, 0xB5026F5AA96619E9ULL };
+
+    if (r->mti >= RAND_NN)
+    {
+		int i;
+		if (r->mti == RAND_NN + 1)
+            random_init(r, 5489ULL);
+
+        for (i = 0; i < RAND_NN - RAND_MM; ++i)
+        {
+            x = (r->mt[i] & RAND_UM) | (r->mt[i+1] & RAND_LM);
+            r->mt[i] = r->mt[i + RAND_MM] ^ (x>>1) ^ mag01[(int)(x&1)];
+        }
+
+        for (; i < RAND_NN - 1; ++i)
+        {
+            x = (r->mt[i] & RAND_UM) | (r->mt[i+1] & RAND_LM);
+            r->mt[i] = r->mt[i + (RAND_MM - RAND_NN)] ^ (x >> 1) ^ mag01[(int)(x & 1)];
+        }
+
+        x = (r->mt[RAND_NN - 1] & RAND_UM) | (r->mt[0] & RAND_LM);
+        r->mt[RAND_NN - 1] = r->mt[RAND_MM - 1] ^ (x >> 1) ^ mag01[(int)(x & 1)];
+        r->mti = 0;
+    }
+
+    x = r->mt[r->mti++];
+    x ^= (x >> 29) & 0x5555555555555555ULL;
+    x ^= (x << 17) & 0x71D67FFFEDA60000ULL;
+    x ^= (x << 37) & 0xFFF7EEE000000000ULL;
+    x ^= (x >> 43);
+
+    return x;
+}
+
 //
 // Canvas
 //

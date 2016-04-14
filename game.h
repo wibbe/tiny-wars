@@ -33,8 +33,13 @@
 
 #define PLAYER_COUNT (4)
 #define PLAYER(id) (&GAME.players[id])
-#define CURRENT_PLAYER PLAYER(GAME.current_player)
+#define VIEW_PLAYER PLAYER(GAME.view_player)
+#define LOCAL_PLAYER PLAYER(GAME.local_player)
 #define NO_PLAYER (-1)
+
+#define RANDOM() random(&GAME.random)
+
+#define AI(id) (&GAME.ai[id])
 
 #define PLAYBACK_FRAME_COUNT (32) // command playback takes 1 seconds for each player
 
@@ -56,12 +61,6 @@ enum GameStage {
     STAGE_COMMAND_PLAYBACK,
 };
 
-enum CommandType {
-    COMMAND_NONE = 0,
-    COMMAND_CONSTRUCT,
-    COMMAND_MOVE_TO,
-};
-
 enum UnitType {
     UNIT_TYPE_NONE = 0,
     UNIT_TYPE_PLAYER,
@@ -69,7 +68,16 @@ enum UnitType {
     UNIT_TYPE_WARIOR,
 };
 
+enum CommandType {
+    COMMAND_NONE = 0,
+    COMMAND_CONSTRUCT,
+    COMMAND_MOVE_TO,
+};
 
+enum PlaybackExecution {
+    PLAYBACK_START,
+    PLAYBACK_ANIMATE,
+};
 
 typedef struct Command {
     int type;
@@ -106,29 +114,39 @@ typedef struct {
 typedef struct Player {
     int flag;
     int id;
+    bool ai_controlled;
     bool stage_done;
     bool fog_of_war[MAP_WIDTH * MAP_HEIGHT];
 } Player;
 
 typedef struct {
+    int player;
+} AIBrain;
+
+typedef struct {
     Map map;
+    Random random;
 
     Unit units[UNIT_COUNT];
     int first_free_unit;
 
     Player players[PLAYER_COUNT];
-    int player_count;
+    AIBrain ai[PLAYER_COUNT];
 
-    int current_player;
+    int player_count;
+    int ai_count;
+
+    int view_player;
     int local_player;
 
     int stage;
     int stage_initiative_player;
 
+    int playback_player_done;
+    int playback_player;
+    int playback_unit;
+    int playback_unit_cmd;
     int playback_frame;
-
-    Bitmap tilesheet;
-    Font font;
 
     int selected_unit;
 
@@ -139,19 +157,32 @@ typedef struct {
     int cursor_y;
 } Game;
 
+typedef struct {
+    Bitmap tilesheet;
+    Font font;
+} Res;
+
 extern Game GAME;
+extern Res RES;
 
 
 Command command_move_to(Unit * unit, int x, int y);
 Command command_construct(int x, int y, int type);
 
-void step_move_to(int player, int unit, int frame);
-void step_construct(int player, int unit, int frame);
+bool step_move_to(int cmd, int player, int unit, int frame);
+bool step_construct(int cmd, int player, int unit, int frame);
+
+void issue_command(int player_id, int unit_id, Command command);
 
 bool is_passable(int x, int y);
+bool in_view_of_local_player(int x, int y);
+
+bool find_empty(int x, int y, Vec * result);
 
 void reveal_fog_of_war(int player_id, int x, int y);
 
 int astar_compute(int start_x, int start_y, int end_x, int end_y, int * path, int path_length);
+
+void think_ai(int ai_id);
 
 #endif

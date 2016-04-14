@@ -31,6 +31,7 @@ static const char * COMMAND_NAMES[] = {
     "MoveTo",
 };
 
+Res RES = {0};
 Game GAME = {0};
 
 
@@ -86,9 +87,9 @@ static void free_unit(int id)
     CELL(unit->x, unit->y)->unit = NO_UNIT;
 }
 
-static void issue_command(int unit_id, Command command)
+void issue_command(int player_id, int unit_id, Command command)
 {
-    log_info("Command (type = %d, x = %d, y = %d) issued on %d by player %d\n", command.type, command.x, command.y, unit_id, GAME.current_player);
+    log_info("Command (type = %d, x = %d, y = %d) issued on %d by player %d\n", command.type, command.x, command.y, unit_id, player_id);
     Unit * unit = UNIT(unit_id);
     unit->command = command;
     unit->offset_x = 0;
@@ -115,6 +116,33 @@ bool is_passable(int x, int y)
 
     Cell * cell = CELL(x, y);
     return !cell->blocked && cell->unit == NO_UNIT;
+}
+
+bool in_view_of_local_player(int x, int y)
+{
+    if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT)
+        return false;
+
+    int idx = y * MAP_WIDTH + x;
+    if (LOCAL_PLAYER->fog_of_war[idx] == false)
+        return true;
+
+    return false;
+}
+
+bool find_empty(int x, int y, Vec * result)
+{
+    for (int i = 0; i < 8; ++i)
+    {
+        if (is_passable(OFFSET[i].x + x, OFFSET[i].y + y))
+        {
+            if (result != NULL)
+                *result = vec_make(OFFSET[i].x + x, OFFSET[i].y + y);
+
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool move_unit(int unit_id, int x, int y)
@@ -260,16 +288,24 @@ void init_game()
         player->id = i;
         player->flag = NO_UNIT;
         player->stage_done = false;
+        player->ai_controlled = false;
 
         // Hide every part of the map with fog-of-war
         for (int j = 0; j < MAP_WIDTH * MAP_HEIGHT; ++j)
             player->fog_of_war[j] = true;
     }
 
+    for (int i = 0; i < PLAYER_COUNT; ++i)
+    {
+        AIBrain * ai = AI(i);
+        ai->player = NO_PLAYER;
+    }
+
     // We start counting units on 1, because unit 0 is the null unit.
     GAME.first_free_unit = 1;
     GAME.selected_unit = NO_UNIT;
     GAME.player_count = 0;
+    GAME.ai_count = 0;
     GAME.cursor_x = VIEW_WIDTH / 2;
     GAME.cursor_y = VIEW_HEIGHT / 2;
     GAME.offset_x = 0;
@@ -278,7 +314,7 @@ void init_game()
     GAME.stage_initiative_player = 0;
 }
 
-bool new_game(const char * map_name, int player_count)
+bool new_game(const char * map_name, int human_players, int ai_players)
 {
     void * map_data;
     size_t map_size;
@@ -288,9 +324,12 @@ bool new_game(const char * map_name, int player_count)
     map_data = resource_get(map_name, &map_size);
     ini_t * map = ini_parse((const char *)map_data, map_size);
 
-    GAME.player_count = player_count;
-    GAME.current_player = 0;
+    GAME.player_count = human_players + ai_players;
+    GAME.ai_count = ai_players;
+    GAME.view_player = 0;
     GAME.local_player = 0;
+
+    random_init(&GAME.random, 0);
 
     for (int y = 0; y < MAP_HEIGHT; ++y)
     {
@@ -336,15 +375,23 @@ bool new_game(const char * map_name, int player_count)
         Player * player = PLAYER(p);
         Unit * flag = UNIT(player->flag);
 
-        for (int i = 0; i < 8; ++i)
+        Vec pos;
+        if (find_empty(flag->x, flag->y, &pos))
         {
-            if (is_passable(OFFSET[i].x + flag->x, OFFSET[i].y + flag->y))
-            {
-                alloc_unit(OFFSET[i].x + flag->x, OFFSET[i].y + flag->y, UNIT_TYPE_WARIOR, p);
-                reveal_fog_of_war(p, OFFSET[i].x + flag->x, OFFSET[i].y + flag->y);
-                break;
-            }
+            alloc_unit(pos.x, pos.y, UNIT_TYPE_WARIOR, p);
+            reveal_fog_of_war(p, pos.x, pos.y);
         }
+    }
+
+    // Initialize ai players
+    for (int i = 0; i < ai_players; ++i)
+    {
+        AIBrain * ai = AI(i);
+        ai->player = human_players + i;
+
+        PLAYER(ai->player)->ai_controlled = true;
+
+        log_info("AI %d controlling player %d\n", i, ai->player);
     }
 
     // Update wall sprites
@@ -359,6 +406,14 @@ fail:
     ini_free(map);
     return false;
 }
+
+// ########  ########     ###    ##      ## #### ##    ##  ######
+// ##     ## ##     ##   ## ##   ##  ##  ##  ##  ###   ## ##    ##
+// ##     ## ##     ##  ##   ##  ##  ##  ##  ##  ####  ## ##
+// ##     ## ########  ##     ## ##  ##  ##  ##  ## ## ## ##   ####
+// ##     ## ##   ##   ######### ##  ##  ##  ##  ##  #### ##    ##
+// ##     ## ##    ##  ##     ## ##  ##  ##  ##  ##   ### ##    ##
+// ########  ##     ## ##     ##  ###  ###  #### ##    ##  ######
 
 void draw_sprite(int x, int y, int offset_x, int offset_y, int sprite)
 {
@@ -381,7 +436,7 @@ void draw_sprite(int x, int y, int offset_x, int offset_y, int sprite)
         real_x = (x - GAME.offset_x) * TILE_SIZE + offset_x;
         real_y = (y - GAME.offset_y) * TILE_SIZE + offset_y;
     }
-    bitmap_draw(real_x, real_y, 0, 0, &GAME.tilesheet, &rect, 0, 0);
+    bitmap_draw(real_x, real_y, 0, 0, &RES.tilesheet, &rect, 0, 0);
 }
 
 void draw_construct(Unit * unit, int id)
@@ -431,7 +486,7 @@ void draw_unit(Unit * unit, int id)
 {
     draw_sprite(unit->x, unit->y, unit->offset_x, unit->offset_y, unit->sprite);
 
-    if (unit->owner == GAME.current_player)
+    if (unit->owner == GAME.view_player)
     {
         switch (unit->command.type)
         {
@@ -473,7 +528,7 @@ void draw_game()
     }
 
     // Draw fog-of-war
-    bool * fog_of_war = CURRENT_PLAYER->fog_of_war;
+    bool * fog_of_war = VIEW_PLAYER->fog_of_war;
     for (int y = 0; y < VIEW_HEIGHT; ++y)
         for (int x = 0; x < VIEW_WIDTH; ++x)
         {
@@ -495,13 +550,13 @@ void draw_game()
 
     char buff[256];
     snprintf(buff, 255, "P: %d\nI: %d\nU: %d\nS: %d\nD: %d%d%d%d",
-             GAME.current_player, GAME.stage_initiative_player, GAME.selected_unit, GAME.stage,
+             GAME.view_player, GAME.stage_initiative_player, GAME.selected_unit, GAME.stage,
              PLAYER(0)->stage_done, PLAYER(1)->stage_done, PLAYER(2)->stage_done, PLAYER(3)->stage_done);
     text_draw(0, 10, buff, 2);
 
     if (GAME.selected_unit != NO_UNIT)
     {
-        snprintf(buff, 255, "X:%d Y:%d O:%d C:%s CP:%d", SELECTED_UNIT->x, SELECTED_UNIT->y, SELECTED_UNIT->owner, COMMAND_NAMES[SELECTED_UNIT->command.type], SELECTED_UNIT->command.progress);
+        snprintf(buff, 255, "%d X:%d Y:%d O:%d C:%s CP:%d", GAME.selected_unit, SELECTED_UNIT->x, SELECTED_UNIT->y, SELECTED_UNIT->owner, COMMAND_NAMES[SELECTED_UNIT->command.type], SELECTED_UNIT->command.progress);
         text_draw(0, CANVAS_HEIGHT - 8, buff, 2);
     }
 }
@@ -529,15 +584,15 @@ static void step_cursor()
 
 static void player_done()
 {
-    CURRENT_PLAYER->stage_done = true;
+    LOCAL_PLAYER->stage_done = true;
     GAME.selected_unit = NO_UNIT;
 
-    GAME.current_player = (GAME.current_player + 1) % GAME.player_count;
+    //GAME.current_player = (GAME.current_player + 1) % GAME.player_count;
 }
 
 static void step_player()
 {
-    if (CURRENT_PLAYER->stage_done)
+    if (VIEW_PLAYER->stage_done)
         return;
 
     int hover_unit_id = CELL(GAME.cursor_x, GAME.cursor_y)->unit;
@@ -545,27 +600,31 @@ static void step_player()
 
     if (key_pressed(KEY_LBUTTON))
     {
-        if (hover_unit->owner == GAME.current_player)
+        if (hover_unit->owner == GAME.view_player)
             GAME.selected_unit = hover_unit_id;
         else
             GAME.selected_unit = NO_UNIT;
     }
 
-    // Issue commands to units
-    if (key_pressed(KEY_RBUTTON) && GAME.selected_unit != NO_UNIT)
+    // Only the local player can issue commands
+    if (GAME.view_player == GAME.view_player)
     {
-        if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR && is_passable(CURSOR_POS) && astar_compute(SELECTED_UNIT->x, SELECTED_UNIT->y, CURSOR_POS, NULL, 0))
-            issue_command(GAME.selected_unit, command_move_to(SELECTED_UNIT, CURSOR_POS));
-    }
-
-    if (key_pressed(KEY_B) && SELECTED_UNIT->type == UNIT_TYPE_PLAYER)
-    {
-        for (int i = 0; i < 8; ++i)
+        // Issue commands to units
+        if (key_pressed(KEY_RBUTTON) && GAME.selected_unit != NO_UNIT)
         {
-            if (is_passable(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y))
+            if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR && is_passable(CURSOR_POS) && astar_compute(SELECTED_UNIT->x, SELECTED_UNIT->y, CURSOR_POS, NULL, 0))
+                issue_command(GAME.local_player, GAME.selected_unit, command_move_to(SELECTED_UNIT, CURSOR_POS));
+        }
+
+        if (key_pressed(KEY_B) && SELECTED_UNIT->type == UNIT_TYPE_PLAYER)
+        {
+            for (int i = 0; i < 8; ++i)
             {
-                issue_command(CURRENT_PLAYER->flag, command_construct(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y, UNIT_TYPE_WARIOR));
-                break;
+                if (is_passable(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y))
+                {
+                    issue_command(GAME.local_player, LOCAL_PLAYER->flag, command_construct(OFFSET[i].x + SELECTED_UNIT->x, OFFSET[i].y + SELECTED_UNIT->y, UNIT_TYPE_WARIOR));
+                    break;
+                }
             }
         }
     }
@@ -578,25 +637,25 @@ static void switch_player()
 {
     if (key_pressed(KEY_1))
     {
-        GAME.current_player = 0;
+        GAME.view_player = 0;
         GAME.selected_unit = NO_UNIT;
     }
 
     if (key_pressed(KEY_2) && GAME.player_count >= 2)
     {
-        GAME.current_player = 1;
+        GAME.view_player = 1;
         GAME.selected_unit = NO_UNIT;
     }
 
     if (key_pressed(KEY_3) && GAME.player_count >= 3)
     {
-        GAME.current_player = 2;
+        GAME.view_player = 2;
         GAME.selected_unit = NO_UNIT;
     }
 
     if (key_pressed(KEY_4) && GAME.player_count >= 4)
     {
-        GAME.current_player = 3;
+        GAME.view_player = 3;
         GAME.selected_unit = NO_UNIT;
     }
 }
@@ -606,6 +665,20 @@ static void step_issue_commands()
     step_player();
     switch_player();
 
+    // When the local player is finished with the commands, step the ai
+    if (LOCAL_PLAYER->stage_done)
+    {
+        for (int i = 0; i < GAME.ai_count; ++i)
+        {
+            AIBrain * ai = AI(i);
+            if (!PLAYER(ai->player)->stage_done)
+            {
+                think_ai(i);
+                PLAYER(ai->player)->stage_done = true;
+            }
+        }
+    }
+
     bool all_done = true;
     for (int p = 0; p < GAME.player_count; ++p)
         all_done &= PLAYER(p)->stage_done;
@@ -614,57 +687,92 @@ static void step_issue_commands()
     {
         GAME.stage = STAGE_COMMAND_PLAYBACK;
         GAME.playback_frame = 0;
+        GAME.playback_player = GAME.stage_initiative_player;
+        GAME.playback_unit = 0;
+        GAME.playback_unit_cmd = PLAYBACK_START;
+        GAME.playback_player_done = 0;
+
+        //log_info("Start playback with player %d\n", GAME.playback_player);
     }
 }
 
-static void step_unit_commands(int player_id, int unit_id, int frame)
+static void step_next_player()
 {
-    Unit * unit = UNIT(unit_id);
+    GAME.playback_player_done++;
+    GAME.playback_player = (GAME.playback_player + 1) % GAME.player_count;
+    GAME.playback_unit = 0;
+    GAME.playback_unit_cmd = PLAYBACK_START;
+    GAME.playback_frame = 0;
 
-    switch (unit->command.type)
+    //log_info("Next player %d (%d/%d)\n", GAME.playback_player, GAME.playback_player_done, GAME.player_count);
+
+    // If we have stept through all players, resume with the issue-command stage
+    if (GAME.playback_player_done >= GAME.player_count)
     {
-        case COMMAND_MOVE_TO:
-            step_move_to(player_id, unit_id, frame);
-            break;
-
-        case COMMAND_CONSTRUCT:
-            step_construct(player_id, unit_id, frame);
-    }
-}
-
-static void step_player_commands(int player_id, int frame)
-{
-    for (int i = 0; i < UNIT_COUNT; ++i)
-    {
-        if (UNIT(i)->owner == player_id)
-            step_unit_commands(player_id, i, frame);
-    }
-}
-
-static void step_commands()
-{
-    int frame = GAME.playback_frame % PLAYBACK_FRAME_COUNT;
-    int player = (GAME.stage_initiative_player + (GAME.playback_frame / PLAYBACK_FRAME_COUNT)) % GAME.player_count;
-    GAME.current_player = player;
-
-    step_player_commands(player, frame);
-
-    //printf("Total: %d Frame: %d, Player: %d\n", GAME.playback_frame, frame, player);
-    //fflush(stdout);
-
-    GAME.playback_frame++;
-
-    if (GAME.playback_frame >= (PLAYBACK_FRAME_COUNT * GAME.player_count))
-    {
+        //log_info("Playback done\n");
         GAME.stage = STAGE_ISSUE_COMMAND;
 
-        GAME.current_player = GAME.local_player;
+        GAME.view_player = GAME.local_player;
         GAME.stage_initiative_player = (GAME.stage_initiative_player + 1) % GAME.player_count;
 
         for (int p = 0; p < GAME.player_count; ++p)
         {
             Player * player = PLAYER(p);
             player->stage_done = false;
+        }
+    }
+}
+
+static bool step_unit_commands(int cmd)
+{
+    switch (UNIT(GAME.playback_unit)->command.type)
+    {
+        case COMMAND_MOVE_TO:
+            return step_move_to(cmd, GAME.playback_player, GAME.playback_unit, GAME.playback_frame);
+
+        case COMMAND_CONSTRUCT:
+            return step_construct(cmd, GAME.playback_player, GAME.playback_unit, GAME.playback_frame);
+
+        default:
+            return true;
+    }
+}
+
+static void step_commands()
+{
+    while (UNIT(GAME.playback_unit)->owner != GAME.playback_player && GAME.playback_unit < UNIT_COUNT)
+        GAME.playback_unit++;
+
+    if (GAME.playback_unit >= UNIT_COUNT)
+    {
+        step_next_player();
+    }
+    else
+    {
+        if (step_unit_commands(GAME.playback_unit_cmd))
+        {
+            //log_info("Unit %d done\n", GAME.playback_unit);
+
+            // if command is finished move along to the next unit
+            GAME.playback_unit++;
+            GAME.playback_frame = 0;
+            GAME.playback_unit_cmd = PLAYBACK_START;
+        }
+        else
+        {
+            // If command is not finished, either continue on to the animation phase, or step the animation
+            switch (GAME.playback_unit_cmd)
+            {
+                case PLAYBACK_START:
+                    //log_info("Animate unit %d\n", GAME.playback_unit);
+                    GAME.playback_unit_cmd = PLAYBACK_ANIMATE;
+                    GAME.playback_frame = 0;
+                    break;
+
+                case PLAYBACK_ANIMATE:
+                    GAME.playback_frame++;
+                    break;
+            }
         }
     }
 }
@@ -687,17 +795,4 @@ void step_game()
 {
     step_cursor();
     step_stage();
-
-
-/*
-    if (key_down(KEY_LBUTTON) && !has_wall(CURSOR_POS))
-    {
-        build_wall(CURSOR_POS);
-    }
-
-    if (key_down(KEY_RBUTTON) && has_wall(CURSOR_POS))
-    {
-        demolish_wall(CURSOR_POS);
-    }
-*/
 }

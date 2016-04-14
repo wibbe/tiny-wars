@@ -38,7 +38,7 @@ Command command_construct(int x, int y, int type)
     return cmd;
 }
 
-static void move_to_next(int unit_id)
+static bool move_to_next(int unit_id)
 {
     Unit * unit = UNIT(unit_id);
 
@@ -46,14 +46,13 @@ static void move_to_next(int unit_id)
     if (unit->x == unit->command.x && unit->y == unit->command.y)
     {
         unit->command.type = COMMAND_NONE;
-        return;
+        return true;
     }
 
     if (!astar_compute(unit->x, unit->y, unit->command.x, unit->command.y, unit->command.args, COMMAND_ARG_COUNT))
     {
         // No solution found
-        unit->command.type = COMMAND_NONE;
-        return;
+        return true;
     }
 
     int next_x = unit->command.args[0] % MAP_WIDTH;
@@ -68,60 +67,97 @@ static void move_to_next(int unit_id)
         unit->offset_x = (diff_x > 0 ? -TILE_SIZE : (diff_x < 0 ? TILE_SIZE : 0));
         unit->offset_y = (diff_y > 0 ? -TILE_SIZE : (diff_y < 0 ? TILE_SIZE : 0));
     }
+
+    return false;
 }
 
-void step_move_to(int player_id, int unit_id, int frame)
+bool step_move_to(int cmd, int player_id, int unit_id, int frame)
 {
-    if (frame == 0)
-    {
-        move_to_next(unit_id);
-    }
-    else if (frame == (PLAYBACK_FRAME_COUNT / 2))
-    {
-        move_to_next(unit_id);
-    }
-    else if (frame == PLAYBACK_FRAME_COUNT - 1)
-    {
-        Unit * unit = UNIT(unit_id);
-        astar_compute(unit->x, unit->y, unit->command.x, unit->command.y, unit->command.args, COMMAND_ARG_COUNT);
+    Unit * unit = UNIT(unit_id);
 
-        // Done
+    if (cmd == PLAYBACK_START)
+    {
+        // Just finish directly if we could not find a path forward
+        if (!astar_compute(unit->x, unit->y, unit->command.x, unit->command.y, unit->command.args, COMMAND_ARG_COUNT))
+            return true;
+
+        bool unit_in_view = in_view_of_local_player(unit->x, unit->y);
+        bool first_target_in_view = unit->command.args[0] == -1 ? false : in_view_of_local_player(unit->command.args[0] % MAP_WIDTH, unit->command.args[0] / MAP_WIDTH);
+        bool second_target_in_view = unit->command.args[1] == -1 ? false : in_view_of_local_player(unit->command.args[1] % MAP_WIDTH, unit->command.args[1] / MAP_WIDTH);
+
+        // If anything is in view, we need to continue on to the animation stage
+        if (unit_in_view || first_target_in_view || second_target_in_view)
+            return false;
+
+        // Otherwise we just move the player to the correct cells. We need to do both of the moves, so we unveil the fog-of-war correctly
+        if (unit->command.args[0] != -1)
+            move_unit(unit_id, unit->command.args[0] % MAP_WIDTH, unit->command.args[0] / MAP_WIDTH);
+        if (unit->command.args[1] != -1)
+            move_unit(unit_id, unit->command.args[1] % MAP_WIDTH, unit->command.args[1] / MAP_WIDTH);
+
+        // Are we done with the move command?
         if (unit->x == unit->command.x && unit->y == unit->command.y)
-        {
             unit->command.type = COMMAND_NONE;
-            unit->offset_x = 0;
-            unit->offset_y = 0;
-        }
+        else
+            astar_compute(unit->x, unit->y, unit->command.x, unit->command.y, unit->command.args, COMMAND_ARG_COUNT);
+
+        return true;
     }
     else
     {
-        //if (frame % 2 == 0)
+        // Animate the player
+        if (frame == 0 || frame == (PLAYBACK_FRAME_COUNT / 2))
         {
-            Unit * unit = UNIT(unit_id);
+            if (move_to_next(unit_id))
+                return true;
+        }
+        else if (frame == PLAYBACK_FRAME_COUNT)
+        {
+            astar_compute(unit->x, unit->y, unit->command.x, unit->command.y, unit->command.args, COMMAND_ARG_COUNT);
 
+            // Are we at the destination?
+            if (unit->x == unit->command.x && unit->y == unit->command.y)
+            {
+                unit->command.type = COMMAND_NONE;
+                unit->offset_x = 0;
+                unit->offset_y = 0;
+            }
+
+            return true;
+        }
+        else
+        {
             if (unit->offset_x > 0) unit->offset_x--;
             if (unit->offset_x < 0) unit->offset_x++;
             if (unit->offset_y > 0) unit->offset_y--;
             if (unit->offset_y < 0) unit->offset_y++;
         }
     }
+
+    return false;
 }
 
-void step_construct(int player_id, int unit_id, int frame)
+bool step_construct(int cmd, int player_id, int unit_id, int frame)
 {
     Unit * unit = UNIT(unit_id);
 
-    if (frame == 0 && unit->command.args[0] < unit->command.args[1])
+    if (cmd == PLAYBACK_START)
     {
-        unit->command.args[0]++;
-        unit->command.progress += 8 / unit->command.args[1];
-    }
-    else if (frame == PLAYBACK_FRAME_COUNT - 1)
-    {
-        if (unit->command.args[0] == unit->command.args[1] && is_passable(unit->command.x, unit->command.y))
+        if (unit->command.args[0] < unit->command.args[1])
         {
-            alloc_unit(unit->command.x, unit->command.y, unit->command.unit, unit->owner);
-            unit->command.type = COMMAND_NONE;
+            unit->command.args[0]++;
+            unit->command.progress += 8 / unit->command.args[1];
+        }
+        else
+        {
+            if (unit->command.args[0] == unit->command.args[1] && is_passable(unit->command.x, unit->command.y))
+            {
+                alloc_unit(unit->command.x, unit->command.y, unit->command.unit, unit->owner);
+                reveal_fog_of_war(unit->owner, unit->command.x, unit->command.y);
+                unit->command.type = COMMAND_NONE;
+            }
         }
     }
+
+    return true;
 }

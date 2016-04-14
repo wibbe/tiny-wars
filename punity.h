@@ -226,6 +226,17 @@ typedef struct {
 inline Vec vec_make(int x, int y);
 
 
+#define RAND_NN 312
+
+typedef struct {
+    int mti;
+    int iset;
+    u64 mt[RAND_NN];
+} Random;
+
+void randrom_init(Random * rand, u64 seed);
+u64 random(Random * rand);
+
 typedef struct
 {
     i32 width;

@@ -1,6 +1,7 @@
 #include "punity.c"
 #include "game.c"
 #include "command.c"
+#include "ai.c"
 #include "astar.c"
 #include "lib/ini.c"
 #include "lib/index_priority_queue.c"
@@ -25,22 +26,21 @@ void init()
 
     canvas_clear(1);
 
-	bitmap_load_resource(&GAME.tilesheet, "tilesheet.png");
-    bitmap_load_resource(&GAME.font.bitmap, "font.png");
+	bitmap_load_resource(&RES.tilesheet, "tilesheet.png");
+    bitmap_load_resource(&RES.font.bitmap, "font.png");
 
-    GAME.font.char_width = 4;
-    GAME.font.char_height = 7;
+    RES.font.char_width = 4;
+    RES.font.char_height = 7;
 
-    CORE->font = &GAME.font;
+    CORE->font = &RES.font;
 
-    ASSERT(new_game("menu.map", 2));
+    new_game("menu.map", 1, 1);
 }
 
 void step()
 {
-	if (key_pressed(KEY_ESCAPE)) {
+	if (key_pressed(KEY_ESCAPE))
 		CORE->running = 0;
-	}
 
     step_game();
 
