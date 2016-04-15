@@ -49,6 +49,9 @@ enum Colors {
     COLOR_WHITE,
     COLOR_LIGHT_GRAY,
     COLOR_DARK_GRAY,
+    COLOR_UI_HIGHLIGHT,
+    COLOR_UI_FACE,
+    COLOR_UI_SHADOW,
     COLOR_GREEN,
     COLOR_PLAYER_1,
     COLOR_PLAYER_2,
@@ -84,6 +87,11 @@ enum CommandType {
 enum PlaybackExecution {
     PLAYBACK_START,
     PLAYBACK_ANIMATE,
+};
+
+enum UIType {
+    UI_BUTTON_TOOLBAR,
+    UI_BUTTON_NEXT,
 };
 
 typedef struct Command {
@@ -131,6 +139,9 @@ typedef struct {
 typedef struct Player {
     int flag;
     int id;
+
+    int gold;
+
     bool ai_controlled;
     bool stage_done;
     bool fog_of_war[MAP_WIDTH * MAP_HEIGHT];
@@ -141,8 +152,17 @@ typedef struct {
 } AIBrain;
 
 typedef struct {
+    int next_id;
+    int current_id;
+
+    bool button_state_old;
+    bool button_state;
+} UI;
+
+typedef struct {
     Map map;
     Random random;
+    UI ui;
 
     Unit units[UNIT_COUNT];
     int first_free_unit;
@@ -206,6 +226,7 @@ void reveal_fog_of_war(int player_id, int x, int y);
 
 int astar_compute(int start_x, int start_y, int end_x, int end_y, int * path, int path_length);
 
+void player_done();
 void think_ai(int ai_id);
 
 #endif

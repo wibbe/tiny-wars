@@ -215,9 +215,10 @@ bool unit_move_to(bool start, int unit_id, int frame)
         bool unit_in_view = in_view_of_local_player(unit->x, unit->y);
         bool first_target_in_view = unit->move_path[0] == -1 ? false : in_view_of_local_player(unit->move_path[0] % MAP_WIDTH, unit->move_path[0] / MAP_WIDTH);
         bool second_target_in_view = unit->move_path[1] == -1 ? false : in_view_of_local_player(unit->move_path[1] % MAP_WIDTH, unit->move_path[1] / MAP_WIDTH);
+        bool third_target_in_view = unit->move_path[2] == -1 ? false : in_view_of_local_player(unit->move_path[2] % MAP_WIDTH, unit->move_path[2] / MAP_WIDTH);
 
         // If anything is in view, we need to continue on to the animation stage
-        if (unit_in_view || first_target_in_view || second_target_in_view)
+        if (unit_in_view || first_target_in_view || second_target_in_view || third_target_in_view)
             return false;
 
         // Otherwise we just move the player to the correct cells. We need to do both of the moves, so we unveil the fog-of-war correctly
@@ -225,6 +226,8 @@ bool unit_move_to(bool start, int unit_id, int frame)
             move_unit(unit_id, unit->move_path[0] % MAP_WIDTH, unit->move_path[0] / MAP_WIDTH);
         if (unit->move_path[1] != -1)
             move_unit(unit_id, unit->move_path[1] % MAP_WIDTH, unit->move_path[1] / MAP_WIDTH);
+        if (unit->move_path[2] != -1)
+            move_unit(unit_id, unit->move_path[2] % MAP_WIDTH, unit->move_path[2] / MAP_WIDTH);
 
         // Are we done with the move command?
         if (unit->x == unit->move_target_x && unit->y == unit->move_target_y)
@@ -236,13 +239,18 @@ bool unit_move_to(bool start, int unit_id, int frame)
     }
     else
     {
+        // 0-7 8-15 16-23 24
+        // s   s    s     e
+        // -a- -a-  - a -
+
         // Animate the player
-        if (frame == 0 || frame == (PLAYBACK_FRAME_COUNT / 2))
+        if (frame == 0 || frame == 8 || frame == 16)
         {
             if (unit_move_to_next(unit_id))
                 return true;
         }
-        else if (frame == PLAYBACK_FRAME_COUNT)
+
+        if (frame == 24)
         {
             astar_compute(unit->x, unit->y, unit->move_target_x, unit->move_target_y, unit->move_path, PATH_LENGTH);
 
@@ -368,6 +376,16 @@ void reveal_fog_of_war(int player_id, int x, int y)
     }
 }
 
+
+//  ######      ###    ##     ## ########
+// ##    ##    ## ##   ###   ### ##
+// ##         ##   ##  #### #### ##
+// ##   #### ##     ## ## ### ## ######
+// ##    ##  ######### ##     ## ##
+// ##    ##  ##     ## ##     ## ##
+//  ######   ##     ## ##     ## ########
+
+
 void init_game()
 {
     for (int i = 0; i < MAP_WIDTH * MAP_HEIGHT; ++i)
@@ -425,6 +443,9 @@ void init_game()
     GAME.offset_y = 0;
     GAME.stage = STAGE_ISSUE_COMMAND;
     GAME.stage_initiative_player = 0;
+
+    GAME.ui.next_id = 1;
+    GAME.ui.current_id = 0;
 }
 
 bool new_game(const char * map_name, int human_players, int ai_players)
@@ -523,6 +544,82 @@ fail:
 }
 
 
+// ##     ## ####
+// ##     ##  ##
+// ##     ##  ##
+// ##     ##  ##
+// ##     ##  ##
+// ##     ##  ##
+//  #######  ####
+
+void begin_ui()
+{
+    GAME.ui.next_id = 1;
+
+    GAME.ui.button_state_old = GAME.ui.button_state;
+    GAME.ui.button_state = key_down(KEY_LBUTTON);
+}
+
+void end_ui()
+{
+    if (!GAME.ui.button_state)
+        GAME.ui.current_id = 0;
+}
+
+static bool ui_cursor_inside(int x, int y, int width, int height)
+{
+    return CORE->mouse_x >= x && CORE->mouse_x <= (x + width) &&
+           CORE->mouse_y >= y && CORE->mouse_y <= (y + height);
+}
+
+bool ui_button(int x, int y, Rect sprite, int type, const char * tooltip)
+{
+    int id = GAME.ui.next_id++;
+    int width;
+    Rect button_rect;
+
+    switch (type)
+    {
+        case UI_BUTTON_TOOLBAR:
+            button_rect = rect_make_size(120, 52, 12, 12);
+            width = 12;
+            break;
+
+        case UI_BUTTON_NEXT:
+            button_rect = rect_make_size(132, 52, 25, 12);
+            width = 25;
+            break;
+    }
+
+    bool mouse_inside = ui_cursor_inside(x, y, width, 12);
+
+    // Did we press down on the button?
+    if (mouse_inside && GAME.ui.current_id == 0 && !GAME.ui.button_state_old && GAME.ui.button_state)
+        GAME.ui.current_id = id;
+
+    if ((mouse_inside && GAME.ui.current_id == 0) || GAME.ui.current_id == id)
+    {
+        if (GAME.ui.current_id == id)
+        {
+            button_rect.min_y -= 11;
+            button_rect.max_y -= 11;
+        }
+
+        if (GAME.stage != STAGE_COMMAND_PLAYBACK)
+            bitmap_draw(x, y, 0, 0, &RES.tilesheet, &button_rect, 0, 0);
+    }
+
+    int sprite_x = (width / 2) - (sprite.max_x - sprite.min_x) / 2;
+    int sprite_y = 6 - (sprite.max_y - sprite.min_y) / 2;
+    bitmap_draw(x + sprite_x, y + sprite_y, 0, 0, &RES.tilesheet, &sprite, 0, 0);
+
+    // Did we click the button?
+    if (GAME.stage != STAGE_COMMAND_PLAYBACK && mouse_inside && GAME.ui.current_id == id && GAME.ui.button_state_old && !GAME.ui.button_state)
+        return true;
+
+    return false;
+}
+
 // ########  ########     ###    ##      ## #### ##    ##  ######
 // ##     ## ##     ##   ## ##   ##  ##  ##  ##  ###   ## ##    ##
 // ##     ## ##     ##  ##   ##  ##  ##  ##  ##  ####  ## ##
@@ -530,6 +627,13 @@ fail:
 // ##     ## ##   ##   ######### ##  ##  ##  ##  ##  #### ##    ##
 // ##     ## ##    ##  ##     ## ##  ##  ##  ##  ##   ### ##    ##
 // ########  ##     ## ##     ##  ###  ###  #### ##    ##  ######
+
+Rect rect_from_sprite(int sprite)
+{
+    int sprite_x = SPRITE_X(sprite);
+    int sprite_y = SPRITE_Y(sprite);
+    return rect_make_size(sprite_x * TILE_SIZE, sprite_y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+}
 
 void focus_view_on(int x, int y)
 {
@@ -559,7 +663,7 @@ void draw_sprite(int x, int y, int offset_x, int offset_y, int sprite)
     }
     else
     {
-        rect = rect_make_size(sprite_x * TILE_SIZE, sprite_y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        rect = rect_from_sprite(sprite);
         real_x = (x - GAME.offset_x) * TILE_SIZE + offset_x;
         real_y = (y - GAME.offset_y) * TILE_SIZE + offset_y;
     }
@@ -630,6 +734,8 @@ void draw_unit(Unit * unit, int id)
 
 void draw_game()
 {
+    begin_ui();
+
     // Start by making sure the offset is within the map
     GAME.offset_x = clamp(GAME.offset_x, 0, MAP_WIDTH - VIEW_WIDTH);
     GAME.offset_y = clamp(GAME.offset_y, 0, MAP_HEIGHT - VIEW_HEIGHT);
@@ -683,6 +789,33 @@ void draw_game()
             }
         }
 
+    // Draw interface
+    int ui_w = MAP_WIDTH + 28;
+    int ui_h = MAP_HEIGHT + 2;
+    int ui_x = CANVAS_WIDTH - ui_w;
+    int ui_y = CANVAS_HEIGHT - ui_h;
+
+    rect_draw(rect_make_size(ui_x + 1, ui_y + 1, ui_w - 1, ui_h - 1), COLOR_UI_FACE);
+    rect_draw(rect_make_size(ui_x + 2, ui_y, ui_w - 2, 1), COLOR_UI_HIGHLIGHT);
+    rect_draw(rect_make_size(ui_x, ui_y + 2, 1, ui_h - 2), COLOR_UI_HIGHLIGHT);
+
+    // Draw corner
+    Rect rect = rect_make_size(157, 61, 3, 3);
+    bitmap_draw(ui_x, ui_y, 0, 0, &RES.tilesheet, &rect, 0, 0);
+
+    // Draw buttons
+    if (ui_button(ui_x + 2, ui_y + 2, rect_make_size(109, 56 - (GAME.stage == STAGE_COMMAND_PLAYBACK ? 8 : 0), 11, 8), UI_BUTTON_NEXT, ""))
+        player_done();
+
+    if (ui_button(ui_x + 2, ui_y + 15, rect_from_sprite(SPRITE_WALL(0)), UI_BUTTON_TOOLBAR, ""))
+    {
+    }
+
+    if (ui_button(ui_x + 15, ui_y + 15, rect_from_sprite(SPRITE_WARIOR(GAME.local_player)), UI_BUTTON_TOOLBAR, ""))
+    {
+    }
+
+
     // Draw mini map
     for (int y = 0; y < MAP_HEIGHT; ++y)
     {
@@ -694,7 +827,7 @@ void draw_game()
             int map_idx = y * MAP_WIDTH + x;
             int canvas_idx = py * CANVAS_WIDTH + px;
 
-            u8 color = COLOR_BLACK;
+            u8 color = 0;
 
             if (((x == GAME.offset_x || x == (GAME.offset_x + VIEW_WIDTH - 1)) && y >= GAME.offset_y && y < (GAME.offset_y + VIEW_HEIGHT)) ||
                 ((y == GAME.offset_y || y == (GAME.offset_y + VIEW_HEIGHT - 1)) && x >= GAME.offset_x && x < (GAME.offset_x + VIEW_WIDTH)))
@@ -722,10 +855,10 @@ void draw_game()
                 }
             }
 
-            CORE->canvas->pixels[canvas_idx] = color;
+            if (color != 0)
+                CORE->canvas->pixels[canvas_idx] = color;
         }
     }
-
 
     if (GAME.selected_unit != NO_UNIT)
     {
@@ -733,6 +866,8 @@ void draw_game()
         snprintf(buff, 255, "ID:%d X:%d Y:%d O:%d HP:%d CMD:%s", GAME.selected_unit, SELECTED_UNIT->x, SELECTED_UNIT->y, SELECTED_UNIT->owner, SELECTED_UNIT->hit_points, COMMAND_NAMES[SELECTED_UNIT->command.type]);
         text_draw(0, CANVAS_HEIGHT - 8, buff, 2);
     }
+
+    end_ui();
 }
 
 
@@ -766,7 +901,7 @@ static void step_cursor()
     GAME.cursor_y = GAME.offset_y + CORE->mouse_y / TILE_SIZE;
 }
 
-static void player_done()
+void player_done()
 {
     LOCAL_PLAYER->stage_done = true;
     GAME.selected_unit = NO_UNIT;
