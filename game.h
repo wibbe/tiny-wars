@@ -13,6 +13,7 @@
 #define UNIT_COUNT          (2048)
 #define COMMAND_ARG_COUNT   (4)
 #define PATH_LENGTH         (8)
+#define UNIT_MOVEMENT_SPEED (3)
 
 #define NO_SPRITE (-1)
 #define SPRITE(x, y) (((y) << 16) | (x))
@@ -62,6 +63,7 @@ enum Colors {
 
 enum GameStage {
     STAGE_ISSUE_COMMAND,
+    STAGE_UNIT_MOVEMENT,
     STAGE_COMMAND_PLAYBACK,
 };
 
@@ -117,6 +119,7 @@ typedef struct Unit {
     int hit_points;
 
     bool moving;
+    bool stage_movement_done;
     int move_target_x;
     int move_target_y;
     int move_path[PATH_LENGTH];

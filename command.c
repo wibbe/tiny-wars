@@ -97,12 +97,10 @@ bool step_move_to(int cmd, int player_id, int unit_id, int frame)
 {
     Unit * unit = UNIT(unit_id);
 
-    bool done = unit_move_to(cmd == PLAYBACK_START, unit_id, frame);
-
-    if (done && !unit->moving)
+    if (!unit->moving)
         unit->command.type = COMMAND_NONE;
 
-    return done;
+    return true;
 }
 
 bool step_construct(int cmd, int player_id, int unit_id, int frame)

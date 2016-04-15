@@ -124,18 +124,6 @@ bool is_passable(int x, int y)
     return !cell->blocked && cell->unit == NO_UNIT;
 }
 
-bool in_view_of_local_player(int x, int y)
-{
-    if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT)
-        return false;
-
-    int idx = y * MAP_WIDTH + x;
-    if (LOCAL_PLAYER->fog_of_war[idx] == false)
-        return true;
-
-    return false;
-}
-
 bool find_empty(int x, int y, Vec * result)
 {
     for (int i = 0; i < 8; ++i)
@@ -168,6 +156,25 @@ static bool move_unit(int unit_id, int x, int y)
 
     return false;
 }
+
+static void produce_unit(int type)
+{
+    Unit * flag = UNIT(LOCAL_PLAYER->flag);
+
+    Vec pos;
+    if (find_empty(flag->x, flag->y, &pos))
+        command_construct(GAME.local_player, LOCAL_PLAYER->flag, pos.x, pos.y, type);
+}
+
+
+// ##     ## ##    ## #### ########    ##     ##  #######  ##     ## ######## ##     ## ######## ##    ## ########
+// ##     ## ###   ##  ##     ##       ###   ### ##     ## ##     ## ##       ###   ### ##       ###   ##    ##
+// ##     ## ####  ##  ##     ##       #### #### ##     ## ##     ## ##       #### #### ##       ####  ##    ##
+// ##     ## ## ## ##  ##     ##       ## ### ## ##     ## ##     ## ######   ## ### ## ######   ## ## ##    ##
+// ##     ## ##  ####  ##     ##       ##     ## ##     ##  ##   ##  ##       ##     ## ##       ##  ####    ##
+// ##     ## ##   ###  ##     ##       ##     ## ##     ##   ## ##   ##       ##     ## ##       ##   ###    ##
+//  #######  ##    ## ####    ##       ##     ##  #######     ###    ######## ##     ## ######## ##    ##    ##
+
 
 static bool unit_move_to_next(int unit_id)
 {
@@ -212,7 +219,7 @@ bool unit_move_to(bool start, int unit_id, int frame)
         if (!astar_compute(unit->x, unit->y, unit->move_target_x, unit->move_target_y, unit->move_path, PATH_LENGTH))
             return true;
 
-        bool unit_in_view = in_view_of_local_player(unit->x, unit->y);
+        bool unit_in_view = in_view_of_local_player(unit->x, unit->y) || unit->owner == GAME.local_player;
         bool first_target_in_view = unit->move_path[0] == -1 ? false : in_view_of_local_player(unit->move_path[0] % MAP_WIDTH, unit->move_path[0] / MAP_WIDTH);
         bool second_target_in_view = unit->move_path[1] == -1 ? false : in_view_of_local_player(unit->move_path[1] % MAP_WIDTH, unit->move_path[1] / MAP_WIDTH);
         bool third_target_in_view = unit->move_path[2] == -1 ? false : in_view_of_local_player(unit->move_path[2] % MAP_WIDTH, unit->move_path[2] / MAP_WIDTH);
@@ -239,18 +246,14 @@ bool unit_move_to(bool start, int unit_id, int frame)
     }
     else
     {
-        // 0-7 8-15 16-23 24
-        // s   s    s     e
-        // -a- -a-  - a -
-
         // Animate the player
-        if (frame == 0 || frame == 8 || frame == 16)
+        if (frame % TILE_SIZE == 0 && frame != (UNIT_MOVEMENT_SPEED * TILE_SIZE))
         {
             if (unit_move_to_next(unit_id))
                 return true;
         }
 
-        if (frame == 24)
+        if (frame == (UNIT_MOVEMENT_SPEED * TILE_SIZE))
         {
             astar_compute(unit->x, unit->y, unit->move_target_x, unit->move_target_y, unit->move_path, PATH_LENGTH);
 
@@ -552,6 +555,7 @@ fail:
 // ##     ##  ##
 //  #######  ####
 
+
 void begin_ui()
 {
     GAME.ui.next_id = 1;
@@ -572,7 +576,7 @@ static bool ui_cursor_inside(int x, int y, int width, int height)
            CORE->mouse_y >= y && CORE->mouse_y <= (y + height);
 }
 
-bool ui_button(int x, int y, Rect sprite, int type, const char * tooltip)
+bool ui_button(int x, int y, Rect sprite, int type, bool enabled, bool down)
 {
     int id = GAME.ui.next_id++;
     int width;
@@ -594,18 +598,18 @@ bool ui_button(int x, int y, Rect sprite, int type, const char * tooltip)
     bool mouse_inside = ui_cursor_inside(x, y, width, 12);
 
     // Did we press down on the button?
-    if (mouse_inside && GAME.ui.current_id == 0 && !GAME.ui.button_state_old && GAME.ui.button_state)
+    if (enabled && mouse_inside && GAME.ui.current_id == 0 && !GAME.ui.button_state_old && GAME.ui.button_state)
         GAME.ui.current_id = id;
 
-    if ((mouse_inside && GAME.ui.current_id == 0) || GAME.ui.current_id == id)
+    if ((mouse_inside && GAME.ui.current_id == 0) || GAME.ui.current_id == id || down)
     {
-        if (GAME.ui.current_id == id)
+        if (GAME.ui.current_id == id || down)
         {
             button_rect.min_y -= 11;
             button_rect.max_y -= 11;
         }
 
-        if (GAME.stage != STAGE_COMMAND_PLAYBACK)
+        if (enabled)
             bitmap_draw(x, y, 0, 0, &RES.tilesheet, &button_rect, 0, 0);
     }
 
@@ -614,26 +618,21 @@ bool ui_button(int x, int y, Rect sprite, int type, const char * tooltip)
     bitmap_draw(x + sprite_x, y + sprite_y, 0, 0, &RES.tilesheet, &sprite, 0, 0);
 
     // Did we click the button?
-    if (GAME.stage != STAGE_COMMAND_PLAYBACK && mouse_inside && GAME.ui.current_id == id && GAME.ui.button_state_old && !GAME.ui.button_state)
+    if (enabled && mouse_inside && GAME.ui.current_id == id && GAME.ui.button_state_old && !GAME.ui.button_state)
         return true;
 
     return false;
 }
 
-// ########  ########     ###    ##      ## #### ##    ##  ######
-// ##     ## ##     ##   ## ##   ##  ##  ##  ##  ###   ## ##    ##
-// ##     ## ##     ##  ##   ##  ##  ##  ##  ##  ####  ## ##
-// ##     ## ########  ##     ## ##  ##  ##  ##  ## ## ## ##   ####
-// ##     ## ##   ##   ######### ##  ##  ##  ##  ##  #### ##    ##
-// ##     ## ##    ##  ##     ## ##  ##  ##  ##  ##   ### ##    ##
-// ########  ##     ## ##     ##  ###  ###  #### ##    ##  ######
 
-Rect rect_from_sprite(int sprite)
-{
-    int sprite_x = SPRITE_X(sprite);
-    int sprite_y = SPRITE_Y(sprite);
-    return rect_make_size(sprite_x * TILE_SIZE, sprite_y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-}
+// ##     ## #### ######## ##      ##
+// ##     ##  ##  ##       ##  ##  ##
+// ##     ##  ##  ##       ##  ##  ##
+// ##     ##  ##  ######   ##  ##  ##
+//  ##   ##   ##  ##       ##  ##  ##
+//   ## ##    ##  ##       ##  ##  ##
+//    ###    #### ########  ###  ###
+
 
 void focus_view_on(int x, int y)
 {
@@ -644,6 +643,35 @@ void focus_view_on(int x, int y)
 bool in_view(int x, int y)
 {
     return x > GAME.offset_x && x < (GAME.offset_x + VIEW_WIDTH) && y > GAME.offset_y && y < (GAME.offset_y + VIEW_HEIGHT);
+}
+
+bool in_view_of_local_player(int x, int y)
+{
+    if (!in_view(x, y))
+        return false;
+
+    int idx = y * MAP_WIDTH + x;
+    if (LOCAL_PLAYER->fog_of_war[idx] == false)
+        return true;
+
+    return false;
+}
+
+
+// ########  ########     ###    ##      ## #### ##    ##  ######
+// ##     ## ##     ##   ## ##   ##  ##  ##  ##  ###   ## ##    ##
+// ##     ## ##     ##  ##   ##  ##  ##  ##  ##  ####  ## ##
+// ##     ## ########  ##     ## ##  ##  ##  ##  ## ## ## ##   ####
+// ##     ## ##   ##   ######### ##  ##  ##  ##  ##  #### ##    ##
+// ##     ## ##    ##  ##     ## ##  ##  ##  ##  ##   ### ##    ##
+// ########  ##     ## ##     ##  ###  ###  #### ##    ##  ######
+
+
+Rect rect_from_sprite(int sprite)
+{
+    int sprite_x = SPRITE_X(sprite);
+    int sprite_y = SPRITE_Y(sprite);
+    return rect_make_size(sprite_x * TILE_SIZE, sprite_y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
 }
 
 void draw_sprite(int x, int y, int offset_x, int offset_y, int sprite)
@@ -803,18 +831,25 @@ void draw_game()
     Rect rect = rect_make_size(157, 61, 3, 3);
     bitmap_draw(ui_x, ui_y, 0, 0, &RES.tilesheet, &rect, 0, 0);
 
-    // Draw buttons
-    if (ui_button(ui_x + 2, ui_y + 2, rect_make_size(109, 56 - (GAME.stage == STAGE_COMMAND_PLAYBACK ? 8 : 0), 11, 8), UI_BUTTON_NEXT, ""))
+    bool is_in_issue_cmd = GAME.stage == STAGE_ISSUE_COMMAND;
+
+    // End turn
+    if (ui_button(ui_x + 2, ui_y + 2, rect_make_size(109, 56 - (is_in_issue_cmd ? 0 : 8), 11, 8), UI_BUTTON_NEXT, is_in_issue_cmd, false))
         player_done();
 
-    if (ui_button(ui_x + 2, ui_y + 15, rect_from_sprite(SPRITE_WALL(0)), UI_BUTTON_TOOLBAR, ""))
+    // Construct walls
+    if (ui_button(ui_x + 2, ui_y + 15, rect_from_sprite(SPRITE_WALL(0)), UI_BUTTON_TOOLBAR, is_in_issue_cmd, false))
     {
     }
 
-    if (ui_button(ui_x + 15, ui_y + 15, rect_from_sprite(SPRITE_WARIOR(GAME.local_player)), UI_BUTTON_TOOLBAR, ""))
+    // Produce warior
+    if (ui_button(ui_x + 15, ui_y + 15, rect_from_sprite(SPRITE_WARIOR(GAME.local_player)), UI_BUTTON_TOOLBAR, is_in_issue_cmd, UNIT(LOCAL_PLAYER->flag)->command.type == COMMAND_CONSTRUCT))
     {
+        if (UNIT(LOCAL_PLAYER->flag)->command.type == COMMAND_CONSTRUCT)
+            stop_construct(LOCAL_PLAYER->flag);
+        else
+            produce_unit(UNIT_TYPE_WARIOR);
     }
-
 
     // Draw mini map
     for (int y = 0; y < MAP_HEIGHT; ++y)
@@ -871,13 +906,13 @@ void draw_game()
 }
 
 
-//  ######      ###    ##     ## ########    ##        #######   #######  ########
-// ##    ##    ## ##   ###   ### ##          ##       ##     ## ##     ## ##     ##
-// ##         ##   ##  #### #### ##          ##       ##     ## ##     ## ##     ##
-// ##   #### ##     ## ## ### ## ######      ##       ##     ## ##     ## ########
-// ##    ##  ######### ##     ## ##          ##       ##     ## ##     ## ##
-// ##    ##  ##     ## ##     ## ##          ##       ##     ## ##     ## ##
-//  ######   ##     ## ##     ## ########    ########  #######   #######  ##
+//  ######  ######## ######## ########     ####  ######   ######  ##     ## ########     ######  ##     ## ########
+// ##    ##    ##    ##       ##     ##     ##  ##    ## ##    ## ##     ## ##          ##    ## ###   ### ##     ##
+// ##          ##    ##       ##     ##     ##  ##       ##       ##     ## ##          ##       #### #### ##     ##
+//  ######     ##    ######   ########      ##   ######   ######  ##     ## ######      ##       ## ### ## ##     ##
+//       ##    ##    ##       ##            ##        ##       ## ##     ## ##          ##       ##     ## ##     ##
+// ##    ##    ##    ##       ##            ##  ##    ## ##    ## ##     ## ##          ##    ## ##     ## ##     ##
+//  ######     ##    ######## ##           ####  ######   ######   #######  ########     ######  ##     ## ########
 
 
 static void step_cursor()
@@ -1007,18 +1042,6 @@ static void step_player()
 
     if (key_pressed(KEY_B) && SELECTED_UNIT->type == UNIT_TYPE_PLAYER)
     {
-        Unit * flag = UNIT(LOCAL_PLAYER->flag);
-
-        if (flag->command.type == COMMAND_CONSTRUCT)
-        {
-            stop_construct(LOCAL_PLAYER->flag);
-        }
-        else
-        {
-            Vec pos;
-            if (find_empty(flag->x, flag->y, &pos))
-                command_construct(GAME.local_player, LOCAL_PLAYER->flag, pos.x, pos.y, UNIT_TYPE_WARIOR);
-        }
     }
 
     if (key_pressed(KEY_W))
@@ -1082,8 +1105,8 @@ static void step_issue_commands()
 
     if (all_done)
     {
-        GAME.stage = STAGE_COMMAND_PLAYBACK;
-        GAME.playback_frame = 0;
+        GAME.stage = STAGE_UNIT_MOVEMENT;
+        GAME.playback_frame = -1;
         GAME.playback_player = GAME.stage_initiative_player;
         GAME.playback_unit = 1;
         GAME.playback_unit_cmd = PLAYBACK_START;
@@ -1092,6 +1115,71 @@ static void step_issue_commands()
         //log_info("Start playback with player %d\n", GAME.playback_player);
     }
 }
+
+
+//  ######  ######## ######## ########     ##     ##  #######  ##     ## ######## ##     ## ######## ##    ## ########
+// ##    ##    ##    ##       ##     ##    ###   ### ##     ## ##     ## ##       ###   ### ##       ###   ##    ##
+// ##          ##    ##       ##     ##    #### #### ##     ## ##     ## ##       #### #### ##       ####  ##    ##
+//  ######     ##    ######   ########     ## ### ## ##     ## ##     ## ######   ## ### ## ######   ## ## ##    ##
+//       ##    ##    ##       ##           ##     ## ##     ##  ##   ##  ##       ##     ## ##       ##  ####    ##
+// ##    ##    ##    ##       ##           ##     ## ##     ##   ## ##   ##       ##     ## ##       ##   ###    ##
+//  ######     ##    ######## ##           ##     ##  #######     ###    ######## ##     ## ######## ##    ##    ##
+
+
+static void step_unit_movement()
+{
+    // Have we cycled through all players?
+    if (GAME.playback_player_done >= GAME.player_count)
+    {
+        GAME.stage = STAGE_COMMAND_PLAYBACK;
+        GAME.playback_frame = 0;
+        GAME.playback_player = GAME.stage_initiative_player;
+        GAME.playback_unit = 1;
+        GAME.playback_unit_cmd = PLAYBACK_START;
+        GAME.playback_player_done = 0;
+
+        return;
+    }
+
+    // Start movement
+    if (GAME.playback_frame == -1)
+    {
+        for (int i = 1; i < UNIT_COUNT; ++i)
+        {
+            Unit * unit = UNIT(i);
+            if (unit->moving && unit->owner == GAME.playback_player)
+                unit->stage_movement_done = unit_move_to(true, i, 0);
+        }
+    }
+
+    GAME.playback_frame++;
+
+    // Animate movement
+    for (int i = 1; i < UNIT_COUNT; ++i)
+    {
+        Unit * unit = UNIT(i);
+        if (unit->moving && !unit->stage_movement_done && unit->owner == GAME.playback_player)
+            unit->stage_movement_done = unit_move_to(false, i, GAME.playback_frame);
+    }
+
+    // Have we run through the all units for the current player?
+    if (GAME.playback_frame == (UNIT_MOVEMENT_SPEED * TILE_SIZE))
+    {
+        GAME.playback_player = (GAME.playback_player + 1) % GAME.player_count;
+        GAME.playback_player_done++;
+        GAME.playback_frame = -1;
+    }
+}
+
+
+//  ######  ######## ######## ########     ########  ##          ###    ##    ## ########     ###     ######  ##    ##
+// ##    ##    ##    ##       ##     ##    ##     ## ##         ## ##    ##  ##  ##     ##   ## ##   ##    ## ##   ##
+// ##          ##    ##       ##     ##    ##     ## ##        ##   ##    ####   ##     ##  ##   ##  ##       ##  ##
+//  ######     ##    ######   ########     ########  ##       ##     ##    ##    ########  ##     ## ##       #####
+//       ##    ##    ##       ##           ##        ##       #########    ##    ##     ## ######### ##       ##  ##
+// ##    ##    ##    ##       ##           ##        ##       ##     ##    ##    ##     ## ##     ## ##    ## ##   ##
+//  ######     ##    ######## ##           ##        ######## ##     ##    ##    ########  ##     ##  ######  ##    ##
+
 
 static void step_next_player()
 {
@@ -1165,7 +1253,7 @@ static void step_commands()
                         //log_info("Animate unit %d\n", GAME.playback_unit);
                         Unit * unit = UNIT(GAME.playback_unit);
 
-                        // Move view if unit is not in it
+                        // Move view if unit is not in it, this should only be done if the unit is in combat
                         if (!in_view(unit->x, unit->y) && unit->owner == GAME.view_player)
                             focus_view_on(unit->x, unit->y);
 
@@ -1188,6 +1276,10 @@ static void step_stage()
     {
         case STAGE_ISSUE_COMMAND:
             step_issue_commands();
+            break;
+
+        case STAGE_UNIT_MOVEMENT:
+            step_unit_movement();
             break;
 
         case STAGE_COMMAND_PLAYBACK:
