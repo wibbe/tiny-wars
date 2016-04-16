@@ -166,6 +166,28 @@ static void produce_unit(int type)
         command_construct(GAME.local_player, LOCAL_PLAYER->flag, pos.x, pos.y, type);
 }
 
+static void build_wall(int x, int y)
+{
+    Cell * cell = CELL(x, y);
+
+    if (cell->unit == NO_UNIT)
+    {
+        alloc_unit(x, y, UNIT_TYPE_WALL, GAME.local_player, 0);
+        update_wall_sprites(x, y);
+    }
+    else
+    {
+        Unit * unit = UNIT(cell->unit);
+        if (unit->type == UNIT_TYPE_WALL && !unit->is_ready)
+        {
+            free_unit(cell->unit);
+            update_wall_sprites(x, y);
+        }
+    }
+
+
+}
+
 
 // ##     ## ##    ## #### ########    ##     ##  #######  ##     ## ######## ##     ## ######## ##    ## ########
 // ##     ## ###   ##  ##     ##       ###   ### ##     ## ##     ## ##       ###   ### ##       ###   ##    ##
@@ -306,7 +328,7 @@ static int get_wall_count(int x, int y)
     return count;
 }
 
-static void update_wall_sprites(int x, int y)
+void update_wall_sprites(int x, int y)
 {
     #define UPDATE_WALL(x, y) if (has_wall((x), (y))) UNIT_POS((x), (y))->sprite = SPRITE_WALL(get_wall_count((x), (y)));
 
@@ -725,7 +747,7 @@ void draw_move_to(Unit * unit, int id, bool selected)
             int x = idx % MAP_WIDTH;
             int y = idx / MAP_WIDTH;
 
-            draw_sprite(x, y, 0, 0, i < 2 ? SPRITE_MOVE_MARKER : SPRITE_MOVE_MARKER_INVALID);
+            draw_sprite(x, y, 0, 0, i < 3 ? SPRITE_MOVE_MARKER : SPRITE_MOVE_MARKER_INVALID);
         }
     }
 
@@ -791,10 +813,10 @@ void draw_game()
         draw_selected_unit(unit, GAME.selected_unit);
 
         draw_sprite(unit->x, unit->y, 0, 0, SPRITE_SELECTION);
-
-        if (GAME.selected_action == UNIT_ACTION_BUILD_WALL && is_passable(CURSOR_POS))
-            draw_sprite(CURSOR_POS, 0, 0, SPRITE_BUILD_SELECTION);
     }
+
+    if (GAME.selected_action == UNIT_ACTION_BUILD_WALL)
+        draw_sprite(CURSOR_POS, 0, 0, SPRITE_BUILD_SELECTION);
 
     // Draw fog-of-war
     bool * fog_of_war = VIEW_PLAYER->fog_of_war;
@@ -837,9 +859,24 @@ void draw_game()
     if (ui_button(ui_x + 2, ui_y + 2, rect_make_size(109, 56 - (is_in_issue_cmd ? 0 : 8), 11, 8), UI_BUTTON_NEXT, is_in_issue_cmd, false))
         player_done();
 
-    // Construct walls
-    if (ui_button(ui_x + 2, ui_y + 15, rect_from_sprite(SPRITE_WALL(0)), UI_BUTTON_TOOLBAR, is_in_issue_cmd, false))
+    // Build walls
+    if (ui_button(ui_x + 2, ui_y + 15, rect_from_sprite(SPRITE_WALL(0)), UI_BUTTON_TOOLBAR, is_in_issue_cmd, GAME.selected_action == UNIT_ACTION_BUILD_WALL))
     {
+        log_info("Start: %d\n", GAME.selected_action);
+
+
+        if (GAME.selected_action == UNIT_ACTION_BUILD_WALL)
+        {
+            log_info("- Set to none\n");
+            GAME.selected_action = UNIT_ACTION_NONE;
+        }
+        else
+        {
+            log_info("- Set to build\n");
+            GAME.selected_action = UNIT_ACTION_BUILD_WALL;
+        }
+
+        log_info("End: %d\n", GAME.selected_action);
     }
 
     // Produce warior
@@ -946,24 +983,7 @@ static void issue_unit_order(int x, int y)
 {
     if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR)
     {
-        if (SELECTED_UNIT->command.type == COMMAND_CONSTRUCT)
-            stop_construct(GAME.selected_unit);
-
-        switch (GAME.selected_action)
-        {
-            case UNIT_ACTION_BUILD_WALL:
-            {
-                if (command_construct(GAME.local_player, GAME.selected_unit, x, y, UNIT_TYPE_WALL))
-                    update_wall_sprites(x, y);
-            }
-
-            case UNIT_ACTION_MOVE:
-            case UNIT_ACTION_NONE:
-                command_move_to(GAME.local_player, GAME.selected_unit, x, y);
-                break;
-        }
-
-        GAME.selected_action = UNIT_ACTION_NONE;
+        command_move_to(GAME.local_player, GAME.selected_unit, x, y);
     }
 }
 
@@ -1001,10 +1021,26 @@ static void step_player_minimap(int x, int y)
 static void step_player_world()
 {
     // Issue commands to units
-    if (key_pressed(KEY_RBUTTON) && GAME.selected_unit != NO_UNIT)
+    if (key_pressed(KEY_RBUTTON))
     {
-        GAME.inside_minimap = false;
-        issue_unit_order(CURSOR_POS);
+        switch (GAME.selected_action)
+        {
+            case UNIT_ACTION_BUILD_WALL:
+                {
+                    build_wall(CURSOR_POS);
+                }
+                break;
+
+            case UNIT_ACTION_NONE:
+                {
+                    if (GAME.selected_unit != NO_UNIT)
+                    {
+                        GAME.inside_minimap = false;
+                        issue_unit_order(CURSOR_POS);
+                    }
+                }
+                break;
+        }
     }
 }
 
@@ -1022,10 +1058,12 @@ static void step_player()
     if (!inside_minimap && key_pressed(KEY_LBUTTON))
     {
         GAME.inside_minimap = false;
-        GAME.selected_action = UNIT_ACTION_NONE;
 
         if (hover_unit->owner == GAME.view_player && hover_unit->is_ready)
+        {
             GAME.selected_unit = hover_unit_id;
+            GAME.selected_action = UNIT_ACTION_NONE;
+        }
         else
             GAME.selected_unit = NO_UNIT;
     }

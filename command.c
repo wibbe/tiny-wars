@@ -107,11 +107,7 @@ bool step_construct(int cmd, int player_id, int unit_id, int frame)
 {
     Unit * unit = UNIT(unit_id);
 
-    if (unit->moving)
-    {
-        return unit_move_to(cmd == PLAYBACK_START, unit_id, frame);
-    }
-    else
+    if (!unit->moving)
     {
         if (cmd == PLAYBACK_START)
         {

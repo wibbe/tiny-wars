@@ -217,6 +217,8 @@ bool command_construct(int player_id, int unit_id, int x, int y, int type);
 
 void stop_construct(int unit_id);
 
+void update_wall_sprites(int x, int y);
+
 bool step_move_to(int cmd, int player, int unit, int frame);
 bool step_construct(int cmd, int player, int unit, int frame);
 
