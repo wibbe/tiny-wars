@@ -27,15 +27,11 @@ void think_ai(int ai_id)
         }
     }
 
-    // should we build more wariors?
+    // Should we build more wariors?
     Unit * flag = UNIT(player->flag);
-
     if (warior_count < 6 && flag->command.type == COMMAND_NONE)
     {
-        //issue_command()
-        Vec pos;
-        if (find_empty(flag->x, flag->y, &pos))
-            command_construct(ai->player, player->flag, pos.x, pos.y, UNIT_TYPE_WARIOR);
+        unit_produce(ai->player, player->flag, UNIT_TYPE_WARIOR);
     }
 
 }

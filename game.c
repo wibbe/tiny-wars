@@ -4,9 +4,10 @@
 static const int SPRITE_GRASS_1             = SPRITE(0, 0);
 static const int SPRITE_SELECTION           = SPRITE(0, 1);
 static const int SPRITE_BUILD_SELECTION     = SPRITE(1, 1);
-static const int SPRITE_MOVE_GOAL_MARKER    = SPRITE(2, 1);
-static const int SPRITE_MOVE_MARKER         = SPRITE(3, 1);
-static const int SPRITE_MOVE_MARKER_INVALID = SPRITE(4, 1);
+static const int SPRITE_MOVE_SELECTION      = SPRITE(2, 1);
+static const int SPRITE_MOVE_GOAL_MARKER    = SPRITE(3, 1);
+static const int SPRITE_MOVE_MARKER         = SPRITE(4, 1);
+static const int SPRITE_MOVE_MARKER_INVALID = SPRITE(5, 1);
 
 #define SPRITE_FLAG(player)     SPRITE(player, 7)
 #define SPRITE_WARIOR(player)   SPRITE(player, 5)
@@ -157,13 +158,18 @@ static bool move_unit(int unit_id, int x, int y)
     return false;
 }
 
-static void produce_unit(int type)
+void unit_produce(int player_id, int unit_it, int type)
 {
-    Unit * flag = UNIT(LOCAL_PLAYER->flag);
+    Unit * flag = UNIT(unit_it);
+    if (flag->type != UNIT_TYPE_PLAYER)
+        return;
 
     Vec pos;
     if (find_empty(flag->x, flag->y, &pos))
-        command_construct(GAME.local_player, LOCAL_PLAYER->flag, pos.x, pos.y, type);
+    {
+        alloc_unit(pos.x, pos.y, type, player_id, 0);
+        command_construct(player_id, unit_it, pos.x, pos.y);
+    }
 }
 
 static void build_wall(int x, int y)
@@ -184,8 +190,6 @@ static void build_wall(int x, int y)
             update_wall_sprites(x, y);
         }
     }
-
-
 }
 
 
@@ -197,6 +201,48 @@ static void build_wall(int x, int y)
 // ##     ## ##   ###  ##     ##       ##     ## ##     ##   ## ##   ##       ##     ## ##       ##   ###    ##
 //  #######  ##    ## ####    ##       ##     ##  #######     ###    ######## ##     ## ######## ##    ##    ##
 
+bool in_reach_of_unit(int unit_id, int x, int y)
+{
+    Unit * unit = UNIT(unit_id);
+
+    int diff_x = abs(unit->x - x);
+    int diff_y = abs(unit->y - y);
+
+    return diff_x <= 1 && diff_y <= 1;
+}
+
+void unit_move_close_to(int unit_id, int x, int y)
+{
+    int best_idx = -1;
+    int best_length = MAP_WIDTH * MAP_HEIGHT;
+
+    Unit * unit = UNIT(unit_id);
+
+    // Find a suitable build position around the site
+    for (int i = 0; i < 8; ++i)
+    {
+        if (is_passable(x + OFFSET[i].x, y + OFFSET[i].y))
+        {
+            int length = astar_compute(unit->x, unit->y, x + OFFSET[i].x, y + OFFSET[i].y, unit->move_path, PATH_LENGTH);
+            if (length > 0 && length < best_length)
+            {
+                best_length = length;
+                best_idx = i;
+            }
+        }
+    }
+
+    if (best_idx != -1)
+    {
+        astar_compute(unit->x, unit->y, x + OFFSET[best_idx].x, y + OFFSET[best_idx].y, unit->move_path, PATH_LENGTH);
+
+        unit->moving = true;
+        unit->move_target_x = x + OFFSET[best_idx].x;
+        unit->move_target_y = y + OFFSET[best_idx].y;
+        unit->offset_x = 0;
+        unit->offset_y = 0;
+    }
+}
 
 static bool unit_move_to_next(int unit_id)
 {
@@ -811,12 +857,29 @@ void draw_game()
         Unit * unit = UNIT(GAME.selected_unit);
 
         draw_selected_unit(unit, GAME.selected_unit);
-
         draw_sprite(unit->x, unit->y, 0, 0, SPRITE_SELECTION);
     }
 
-    if (GAME.selected_action == UNIT_ACTION_BUILD_WALL)
-        draw_sprite(CURSOR_POS, 0, 0, SPRITE_BUILD_SELECTION);
+    {
+
+        if (GAME.selected_action == UNIT_ACTION_BUILD_WALL)
+        {
+            draw_sprite(CURSOR_POS, 0, 0, SPRITE_BUILD_SELECTION);
+        }
+        else if (GAME.selected_unit != NO_UNIT)
+        {
+            Unit * cursor_unit = UNIT_POS(GAME.cursor_x, GAME.cursor_y);
+
+            if (cursor_unit == NULL_UNIT)
+            {
+                draw_sprite(CURSOR_POS, 0, 0, SPRITE_MOVE_SELECTION);
+            }
+            else if (cursor_unit->owner == GAME.local_player &&
+                     (cursor_unit->type == UNIT_TYPE_WALL || cursor_unit->type == UNIT_TYPE_PLAYER) &&
+                     cursor_unit->hit_points < MAX_HITPOINTS[cursor_unit->type])
+                draw_sprite(CURSOR_POS, 0, 0, SPRITE_BUILD_SELECTION);
+        }
+    }
 
     // Draw fog-of-war
     bool * fog_of_war = VIEW_PLAYER->fog_of_war;
@@ -862,21 +925,10 @@ void draw_game()
     // Build walls
     if (ui_button(ui_x + 2, ui_y + 15, rect_from_sprite(SPRITE_WALL(0)), UI_BUTTON_TOOLBAR, is_in_issue_cmd, GAME.selected_action == UNIT_ACTION_BUILD_WALL))
     {
-        log_info("Start: %d\n", GAME.selected_action);
-
-
         if (GAME.selected_action == UNIT_ACTION_BUILD_WALL)
-        {
-            log_info("- Set to none\n");
             GAME.selected_action = UNIT_ACTION_NONE;
-        }
         else
-        {
-            log_info("- Set to build\n");
             GAME.selected_action = UNIT_ACTION_BUILD_WALL;
-        }
-
-        log_info("End: %d\n", GAME.selected_action);
     }
 
     // Produce warior
@@ -885,7 +937,7 @@ void draw_game()
         if (UNIT(LOCAL_PLAYER->flag)->command.type == COMMAND_CONSTRUCT)
             stop_construct(LOCAL_PLAYER->flag);
         else
-            produce_unit(UNIT_TYPE_WARIOR);
+            unit_produce(GAME.local_player, LOCAL_PLAYER->flag, UNIT_TYPE_WARIOR);
     }
 
     // Draw mini map
@@ -983,7 +1035,26 @@ static void issue_unit_order(int x, int y)
 {
     if (SELECTED_UNIT->type == UNIT_TYPE_WARIOR)
     {
-        command_move_to(GAME.local_player, GAME.selected_unit, x, y);
+        Unit * clicked_unit = UNIT_POS(x, y);
+
+        if (clicked_unit->owner == GAME.local_player || clicked_unit->type == UNIT_TYPE_NONE)
+        {
+            // Own unit or nothing
+
+            if (clicked_unit->type == UNIT_TYPE_WALL || clicked_unit->type == UNIT_TYPE_PLAYER)
+            {
+                if (clicked_unit->hit_points < MAX_HITPOINTS[clicked_unit->type])
+                    command_construct(GAME.local_player, GAME.selected_unit, x, y);
+            }
+            else
+            {
+                command_move_to(GAME.local_player, GAME.selected_unit, x, y);
+            }
+        }
+        else
+        {
+            // Enemy
+        }
     }
 }
 

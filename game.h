@@ -211,9 +211,11 @@ extern Game GAME;
 extern Res RES;
 
 bool unit_move_to(bool start, int unit_id, int frame);
+void unit_move_close_to(int unit_id, int x, int y);
+void unit_produce(int player_id, int unit_it, int type);
 
 void command_move_to(int player_id, int unit_id, int x, int y);
-bool command_construct(int player_id, int unit_id, int x, int y, int type);
+bool command_construct(int player_id, int unit_id, int x, int y);
 
 void stop_construct(int unit_id);
 
@@ -224,6 +226,8 @@ bool step_construct(int cmd, int player, int unit, int frame);
 
 bool is_passable(int x, int y);
 bool in_view_of_local_player(int x, int y);
+
+bool in_reach_of_unit(int unit_id, int x, int y);
 
 bool find_empty(int x, int y, Vec * result);
 
